@@ -486,7 +486,7 @@ GYDE was developed at Genentech Research and Early Development by Thomas Down an
 ## Contact
 
 - **Maintainer**: Kiran Mukhyala
-- **Email**: [mukhyala@gmail.com]
+- **Email**: [mukhyala@gene.com]
 - **Issues**: [GitHub Issues](https://github.com/proteinverse/gyde/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/proteinverse/gyde/discussions)
 
