@@ -16,9 +16,7 @@ FROM node:${NODE_VERSION}-alpine${ALPINE_VERSION}
 ADD gydesrv /root/gydesrv
 COPY --from=frontend-build /root/gyde-frontend/build /root/gyde-frontend
 
-ENV GYDE_PRESCIENT_ROLE= \
-    GYDE_PRESCIENT_BUCKET= \
-    GYDE_HOST=0.0.0.0 \
+ENV GYDE_HOST=0.0.0.0 \
     GYDE_TLS_PORT= \
     GYDE_STATIC_DIR=/root/gyde-frontend \
     GYDE_MONGO_CONNECTION='mongodb://host.docker.internal:27017' \
