@@ -91,7 +91,7 @@ function SequenceTable(props, ref) {
         heatmapDataScale, heatmapRelativeToWT, heatmapColorPalette, heatmapDataObject, compact,
         cellWidth=12, cellHeight=20, cellPaddingX=2, cellPaddingY=2, columnTypes={}, columnDisplayNames={},
         reorderDataColumns, nameColumn='concept_name', refNameColumn='seed', colourBackground=false,
-        setViewingJob, selectedOtherColumns = CONSTAINT_OBJ, updateSelectedOtherColumns, bottomNav
+        setViewingJob, cancelSlivkaJob, selectedOtherColumns = CONSTAINT_OBJ, updateSelectedOtherColumns, bottomNav
     } = props;
     const dummyColumn = useMemo(() => dataRows.map((_) => undefined));
     const dataRowCount = dataRows.length;
@@ -216,10 +216,15 @@ function SequenceTable(props, ref) {
                     result.status=true;
                 }
 
-                const jurl = s?._gyde_job_url;
+                const jurl = s?._gyde_job_url || s?._gyde_msa_job_url;
                 if (jurl && setViewingJob) {
                     const toks = jurl.split('/');
                     result.onClick = () => {setViewingJob(toks[toks.length -1], jurl)};
+                }
+
+                const jid = s?._gyde_job_id || s?._gyde_msa_job_id;
+                if (jid && cancelSlivkaJob && s?._gyde_analysis === 'pending') {
+                    result.onCancel = () => {cancelSlivkaJob(jid)};
                 }
 
                 return result;

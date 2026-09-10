@@ -265,6 +265,14 @@ class _Study extends React.Component {
         this.setState({viewingJob: {jobId, explicitURL}});
     }
 
+    cancelSlivkaJob = async (jobId) => {
+        try {
+            await this.props.slivkaService.cancel(jobId);
+        } catch (err) {
+            console.warn('Cancel request failed:', err);
+        }
+    }
+
     showMerge() {
         this.setState({showSetupMerge: true});
     }
@@ -2633,6 +2641,7 @@ class _Study extends React.Component {
                             nameColumn={this.props.nameColumn}
                             refNameColumn={this.props.refNameColumn}
                             setViewingJob={this.setViewingJob}
+                            cancelSlivkaJob={this.cancelSlivkaJob}
                             bottomNav={/*bottomNavBar */ undefined}
                         />
                         <SequenceTableExportControls 
@@ -2709,6 +2718,7 @@ class _Study extends React.Component {
 
                                 sequenceCompact={layoutDict['Sequences'].isHalfWidth /* This is rather nasty, but needed because we are relocating the "Structure Prediction" button to the sequence navbar */}
                                 primaryNavBarExtras={this.primaryNavBarExtrasRef}
+                                setViewingJob={this.setViewingJob}
                             />
                         </div>
                     </div>
@@ -2921,6 +2931,7 @@ class _Study extends React.Component {
                         nameColumn={this.props.nameColumn}
                         refNameColumn={this.props.refNameColumn}
                         setViewingJob={this.setViewingJob}
+                        cancelSlivkaJob={this.cancelSlivkaJob}
                     />
                 </WidgetBoundaryWrapper>
             </Paper>

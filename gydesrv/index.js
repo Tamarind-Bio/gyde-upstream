@@ -880,6 +880,36 @@ async function cachingProxyJobQuery(slivkaURL, apiPrefix, req, res) {
     }
 }
 
+app.delete(
+    '/api/jobs/:jid',
+    async (req, res) => {
+        return proxyJobCancel(SLIVKA, req, res);
+    }
+)
+
+app.delete(
+    '/api2/jobs/:jid',
+    async (req, res) => {
+        return proxyJobCancel(SLIVKA2, req, res);
+    }
+)
+
+async function proxyJobCancel(slivkaURL, req, res) {
+    const jid = req.params.jid;
+    try {
+        const slivkaResp = await fetch(`${slivkaURL}/api/jobs/${jid}`, {method: 'DELETE'});
+        if (slivkaResp.ok) {
+            res.status(200).type('json').send(JSON.stringify({status: 'cancelled', id: jid}));
+        } else {
+            const slivkaOut = await slivkaResp.text();
+            res.status(slivkaResp.status).send(slivkaOut);
+        }
+    } catch (err) {
+        console.log('Job cancel error:', err);
+        res.status(500).send('error cancelling job');
+    }
+}
+
 app.get(
     '/api/jobs/:jid/files',
     async (req, res) => {

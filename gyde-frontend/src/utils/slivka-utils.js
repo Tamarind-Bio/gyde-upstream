@@ -12,6 +12,7 @@ export async function uploadFile(service, file) {
 
 export async function preUploadFiles(service, input) {
     const fixedInput = {...input};
+    if (!service?.parameters) return fixedInput;
     for (const param of service.parameters) {
         if (param.type === 'file') {
             const pid = param.id;

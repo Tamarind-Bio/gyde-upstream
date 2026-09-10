@@ -1,5 +1,6 @@
 import React, {useCallback, useMemo} from 'react';
-import {CircularProgress, Tooltip} from '@mui/material';
+import {CircularProgress, IconButton, Tooltip} from '@mui/material';
+import {Visibility, Cancel} from '@mui/icons-material';
 
 import CellularCol from './CellularCol';
 
@@ -23,6 +24,7 @@ function StatusCell({data, index, updateSelection, format}) {
 
 
     let handler = data?.onClick;
+    let onCancel = data?.onCancel;
     let message = data?.message;
     let content;
     let status = data?.status ?? data;
@@ -31,7 +33,27 @@ function StatusCell({data, index, updateSelection, format}) {
         content =<span style={{color: 'green'}}>{ '\u2713' }</span>;
     } else if (status === false) {
         content = (
-            <CircularProgress size={8} />
+            <span style={{display: 'inline-flex', alignItems: 'center', gap: 6}}>
+                <CircularProgress size={8} />
+                { handler
+                    ? <Tooltip title="View job">
+                          <IconButton size="small"
+                                      onClick={(ev) => {ev.preventDefault(); ev.stopPropagation(); handler()}}
+                                      sx={{padding: '2px', color: 'primary.main'}}>
+                              <Visibility sx={{fontSize: 14}} />
+                          </IconButton>
+                      </Tooltip>
+                    : undefined }
+                { onCancel
+                    ? <Tooltip title="Cancel job">
+                          <IconButton size="small"
+                                      onClick={(ev) => {ev.preventDefault(); ev.stopPropagation(); onCancel()}}
+                                      sx={{padding: '2px', color: 'error.main'}}>
+                              <Cancel sx={{fontSize: 14}} />
+                          </IconButton>
+                      </Tooltip>
+                    : undefined }
+            </span>
         );
     } else if (status) {
         if (typeof(data) === 'string') {
@@ -42,8 +64,7 @@ function StatusCell({data, index, updateSelection, format}) {
         content = <span style={{color: 'red'}}>{ '\u2717' }</span>;
     }
 
-        
-    if (handler) {
+    if (status !== false && handler) {
         content = (
             <a href="#" 
                onClick={(ev) => {ev.preventDefault(); ev.stopPropagation(); handler()}}
@@ -70,7 +91,7 @@ function StatusCell({data, index, updateSelection, format}) {
                 padding: 3,
                 userSelect: 'none'
             }}
-            onClick={handler ? undefined : clickHandler}
+            onClick={(handler || onCancel) ? undefined : clickHandler}
         >
             { content }
         </div>

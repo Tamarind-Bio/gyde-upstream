@@ -2,10 +2,10 @@ import React, { useState, useCallback, useMemo } from "react";
 import {createPortal} from 'react-dom';
 import { saveAs } from "file-saver";
 import {
-    Button, CircularProgress, Menu, MenuItem, Stack, TextField, Radio, ListItemText, Checkbox,
-    FormControlLabel
+    Button, CircularProgress, IconButton, Menu, MenuItem, Stack, TextField, Radio, ListItemText, Checkbox,
+    FormControlLabel, Tooltip
 } from "@mui/material";
-import { ArrowDropDown, Download, ArrowRight } from "@mui/icons-material";
+import { ArrowDropDown, Download, ArrowRight, Visibility, Cancel } from "@mui/icons-material";
 
 import { PdbUploadButton } from './PdbUploadButton';
 import { navbarButtonCSS } from "../NavBar";
@@ -135,7 +135,10 @@ export const StructureNavBar = (props) => {
                         structureInfos={props.structureInfos}
                         predictionsPending={props.predictionsPending}
                         predictionsStatus={props.predictionsStatus}
+                        predictionsJobInfo={props.predictionsJobInfo}
                         predictionMethods={props.predictionMethods}
+                        cancelPrediction={props.cancelPrediction}
+                        setViewingJob={props.setViewingJob}
                     />,
                     props.primaryNavBarExtras.current
                 )
@@ -241,7 +244,8 @@ const HeatmapMetricMenu = (props) => {
 const StructurePredictionMenu = (props) => {
     const {
         anchor, onShow, onClose, runABuilder, isAntibody, predictionPending, predictionKey,
-        style, structureInfos, predictionsPending, predictionsStatus, predictionMethods
+        style, structureInfos, predictionsPending, predictionsStatus, predictionsJobInfo,
+        predictionMethods, cancelPrediction, setViewingJob
     } = props;
     const isOpen = !!anchor;
 
@@ -260,6 +264,15 @@ const StructurePredictionMenu = (props) => {
         return [pending, status];
     }
 
+    function methodJobInfoForKey(methodKey) {
+        const methodJobs = (predictionsJobInfo || {})[methodKey] || {};
+        for (const si of (structureInfos || [])) {
+            const ji = methodJobs[si.predictionKey];
+            if (ji?.jobId) return ji;
+        }
+        return null;
+    }
+
     const hasPredictableAntibodies = structureInfos?.some((si) => si.hc && si.lc),
           hasPredictableVHH = structureInfos?.some((si) => si.hc && !si.lc);
 
@@ -267,6 +280,7 @@ const StructurePredictionMenu = (props) => {
         filter((pred) => (!pred.gateOnService || services.has(pred.gateOnService)) && pred.enabled).
         map((pred) => {
             const [pending, status] = methodStatus(pred.key);
+            const jobInfo = methodJobInfoForKey(pred.key);
 
             let available = (structureInfos || []).filter((si) => si.proteinSequences.length > 0).length > 0;
             if (typeof(pred.available) !== 'undefined') {
@@ -288,7 +302,8 @@ const StructurePredictionMenu = (props) => {
                 ...pred,
                 pending,
                 status,
-                available
+                available,
+                jobInfo
             }
 
         });
@@ -312,18 +327,59 @@ const StructurePredictionMenu = (props) => {
         return {defaultPreds, groupPreds};
     }, [preds]);
 
+    function handleViewJob(ev, jobInfo) {
+        ev.stopPropagation();
+        if (setViewingJob && jobInfo?.jobUrl) {
+            const toks = jobInfo.jobUrl.split('/');
+            setViewingJob(toks[toks.length - 1], jobInfo.jobUrl);
+        }
+    }
+
+    function handleCancelJob(ev, methodKey, predKey) {
+        ev.stopPropagation();
+        if (cancelPrediction) {
+            cancelPrediction(methodKey, predKey);
+        }
+    }
+
     function predMenu(preds) {
-        return preds.map(({name, callback, pending, status, available, enabled}, idx) => (
-            <MenuItem key={name}
-                      onClick={() => callback()}
-                      disabled={predictionPending || pending || !available} >
-                {name}
-                { pending
-                    ? <React.Fragment>&nbsp;<CircularProgress size={12} /></React.Fragment> 
-                    : undefined }
-                {status ? `[${status}]` : undefined}
-            </MenuItem>
-        ));
+        return preds.map(({name, callback, pending, status, available, enabled, key: methodKey, jobInfo}, idx) => {
+            const pendingPredKeys = structureInfos
+                ?.map((si) => si.predictionKey)
+                .filter((pk) => (predictionsPending[methodKey] || {})[pk]);
+            const firstPendingPredKey = pendingPredKeys?.[0];
+
+            return (
+                <MenuItem key={name}
+                          onClick={() => callback()}
+                          disabled={predictionPending || pending || !available}
+                          sx={{gap: '6px'}} >
+                    <span style={{flex: 1}}>{name}</span>
+                    { pending
+                        ? <React.Fragment>
+                              <CircularProgress size={12} />
+                              {status ? <span style={{fontSize: '11px', color: '#666'}}>{status}</span> : undefined}
+                              { jobInfo
+                                ? <React.Fragment>
+                                      <Tooltip title="View job details">
+                                          <IconButton size="small" onClick={(ev) => handleViewJob(ev, jobInfo)}
+                                                      sx={{padding: '2px'}}>
+                                              <Visibility sx={{fontSize: 14}} />
+                                          </IconButton>
+                                      </Tooltip>
+                                      <Tooltip title="Cancel job">
+                                          <IconButton size="small" onClick={(ev) => handleCancelJob(ev, methodKey, firstPendingPredKey)}
+                                                      sx={{padding: '2px', color: 'error.main'}}>
+                                              <Cancel sx={{fontSize: 14}} />
+                                          </IconButton>
+                                      </Tooltip>
+                                  </React.Fragment>
+                                : undefined }
+                          </React.Fragment>
+                        : status ? <span style={{fontSize: '11px', color: '#666'}}>[{status}]</span> : undefined }
+                </MenuItem>
+            );
+        });
     }
 
     return (

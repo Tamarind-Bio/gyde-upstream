@@ -46,7 +46,7 @@ const ERROR_LIMIT = 3;
 
 const CONSTANT_EMPTY = [];
 
-function updatePredictionsState(oldState, methodKey, predictionKey, status, pending) {
+function updatePredictionsState(oldState, methodKey, predictionKey, status, pending, jobInfo) {
     const val = {};
     if (pending !== null) {
         val.predictionsPending = {
@@ -63,6 +63,15 @@ function updatePredictionsState(oldState, methodKey, predictionKey, status, pend
             [methodKey]: {
                 ...(oldState.predictionsStatus[methodKey] || {}),
                 [predictionKey]: status
+            }
+        };
+    }
+    if (jobInfo !== undefined) {
+        val.predictionsJobInfo = {
+            ...(oldState.predictionsJobInfo || {}),
+            [methodKey]: {
+                ...((oldState.predictionsJobInfo || {})[methodKey] || {}),
+                [predictionKey]: jobInfo
             }
         };
     }
@@ -86,6 +95,7 @@ class StructureHolder extends React.Component {
 
             predictionsPending: {},
             predictionsStatus: {},
+            predictionsJobInfo: {},
 
             mappingMessage: null,
 
@@ -100,8 +110,22 @@ class StructureHolder extends React.Component {
         };
 
         this.onMolstarSelectionChange = this.onMolstarSelectionChange.bind(this);
+        this.cancelPrediction = this.cancelPrediction.bind(this);
         this.slivkaSubscriptions = [];
         this.hasBeenSuperposed = {};
+    }
+
+    async cancelPrediction(methodKey, predictionKey) {
+        const {slivkaService} = this.props;
+        const jobInfo = (this.state.predictionsJobInfo[methodKey] || {})[predictionKey];
+        if (!jobInfo?.jobId) return;
+
+        try {
+            await slivkaService.cancel(jobInfo.jobId);
+        } catch (err) {
+            console.warn('Cancel request failed (job may already have completed):', err);
+        }
+        this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, 'CANCELLED', false, null));
     }
 
     align(seqA, seqB) {
@@ -1544,7 +1568,10 @@ class StructureHolder extends React.Component {
                 predictionKey={predictionKey}
                 predictionsPending={this.state.predictionsPending}
                 predictionsStatus={this.state.predictionsStatus}
+                predictionsJobInfo={this.state.predictionsJobInfo}
                 predictionMethods={this.getPredictionMethods()}
+                cancelPrediction={this.cancelPrediction}
+                setViewingJob={this.props.setViewingJob}
                 structureInfos={structureInfos}
                 compact={compact}
                 sequenceCompact={this.props.sequenceCompact}
@@ -1754,7 +1781,10 @@ class StructureHolder extends React.Component {
 
         let firstPing = true;
         const listener = async (result) => {
-            if (result.finished || !result.id) {
+            const isTerminal = result.finished || !result.id
+                || result.status === 'CANCELLING' || result.status === 'CANCELLED';
+
+            if (isTerminal) {
                 if (result.status === 'COMPLETED') {
                     const fetchResult = await slivkaService.fetch(
                         result.id,
@@ -1786,7 +1816,7 @@ class StructureHolder extends React.Component {
                 } 
                 
                 this.currentlyPredicting[method].delete(dataIndices[0])
-                this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false));
+                this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false, null));
             } else {
                 if (firstPing) {
                     addValueToNewStructureColumn(
@@ -1795,7 +1825,8 @@ class StructureHolder extends React.Component {
                     );
                     firstPing = false;
                 }
-                this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, null /* no update */));
+                const ji = {jobId: result.id, jobUrl: result['@url']};
+                this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, null /* no update */, ji));
             }
         };
 
@@ -1993,7 +2024,10 @@ class StructureHolder extends React.Component {
 
             let firstPing = true;
             const listener = async (result) => {
-                if (result.finished || !result.id) {
+                const isTerminal = result.finished || !result.id
+                    || result.status === 'CANCELLING' || result.status === 'CANCELLED';
+
+                if (isTerminal) {
                     if (result.status === 'COMPLETED') {
                         const fetchResult = await slivkaService.fetch(
                             result.id,
@@ -2059,7 +2093,7 @@ class StructureHolder extends React.Component {
                         }
                     }
 
-                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false));
+                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false, null));
                 } else {
                     if (firstPing) {
                         this.props.addValueToNewStructureColumn(
@@ -2069,7 +2103,8 @@ class StructureHolder extends React.Component {
                         );
                         firstPing = false;
                     }
-                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, null /* no update */));
+                    const ji = {jobId: result.id, jobUrl: result['@url']};
+                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, null /* no update */, ji));
                 }
             };
 
@@ -2157,7 +2192,10 @@ class StructureHolder extends React.Component {
 
             let firstPing = true;
             const listener = async (result) => {
-                if (result.finished || !result.id) {
+                const isTerminal = result.finished || !result.id
+                    || result.status === 'CANCELLING' || result.status === 'CANCELLED';
+
+                if (isTerminal) {
                     if (result.status === 'COMPLETED') {
                         const fetchResult = await slivkaService.fetch(
                             result.id,
@@ -2241,7 +2279,7 @@ class StructureHolder extends React.Component {
                         }
                     }
 
-                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false));
+                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false, null));
                 } else {
                     if (firstPing) {
                         this.props.addValueToNewStructureColumn(
@@ -2251,7 +2289,8 @@ class StructureHolder extends React.Component {
                         );
                         firstPing = false;
                     }
-                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, null /* no update */));
+                    const ji = {jobId: result.id, jobUrl: result['@url']};
+                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, null /* no update */, ji));
                 }
             };
 
@@ -2295,7 +2334,10 @@ class StructureHolder extends React.Component {
                 this.setState({showingCzekoladaUI: undefined});
             }
 
-            if (result.finished || !result.id) {
+            const isTerminal = result.finished || !result.id
+                || result.status === 'CANCELLING' || result.status === 'CANCELLED';
+
+            if (isTerminal) {
                 if (result.status === 'COMPLETED') {
                     onComplete(result);
                 } else {
@@ -2314,8 +2356,9 @@ class StructureHolder extends React.Component {
                     }
                 }
 
-                this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false));
+                this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false, null));
             } else {
+                const ji = {jobId: result.id, jobUrl: result['@url']};
                 if (firstPing) {
                     this.props.addValueToNewStructureColumn(
                         structureInfo.dataIndices[0],
@@ -2328,9 +2371,9 @@ class StructureHolder extends React.Component {
                         },
                         structureName
                     );
-                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, true));
+                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, true, ji));
                 } else {
-                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, null));
+                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, null, ji));
                 }
             }
         };
@@ -2384,7 +2427,7 @@ class StructureHolder extends React.Component {
         }
     }
 
-    runMSA(sequence, returnType='id', quiet=false) {
+    runMSA(sequence, returnType='id', quiet=false, onJobInfo=null) {
         const slivkaService = this.props.slivkaService;
         return new Promise(async (resolve, reject) => {
             const seqFasta = new Blob([`>prot\n${sequence}\n`], {type: 'application/fasta'});     // FIXME!!!!!!!!
@@ -2399,16 +2442,24 @@ class StructureHolder extends React.Component {
             }
 
             try {
+                let jobInfoFired = false;
                 await slivkaService.submit(service, formData, {useCache: true}, async (status) => {
+                    if (status?.id && onJobInfo && !jobInfoFired) {
+                        jobInfoFired = true;
+                        onJobInfo({jobId: status.id, jobUrl: status['@url']});
+                    }
                     if (status?.status === 'COMPLETED') {
                         const [{data}] = await slivkaService.fetch(status['id'], [{label: 'msa', type: returnType}]);
                         resolve(data);
-                    } else if (status?.status === 'FAILED') {
-                        reject('MSA failed');
+                    } else if (status?.finished || status?.status === 'CANCELLING' || status?.status === 'CANCELLED') {
+                        const err = new Error('MSA ' + (status?.status ?? 'FAILED'));
+                        err.jobUrl = status?.['@url'];
+                        err.jobId = status?.id;
+                        reject(err);
                     }
                 });
             } catch (err) {
-                reject(err.messsage ?? err);
+                reject(err.message ?? err);
             }
         });
     }
@@ -2417,7 +2468,7 @@ class StructureHolder extends React.Component {
         const {method, methodKey, reconnect, onComplete, structureSuffixes=[''], inputConstructor} = props;
         const {selection, columnarData, dataColumns, seqColumns, columnTypes, slivkaService, structureSequence, visibleStructures, isAntibody} = this.props;
 
-        const service = slivkaService.services.find((s) => s.id === method);
+        const getService = () => slivkaService.services.find((s) => s.id === method);
 
         const listener = async (result) => {
             const jobName = result.jobName || methodKey;
@@ -2432,7 +2483,10 @@ class StructureHolder extends React.Component {
                 // this.setState({showingCzekoladaUI: undefined});
             }
 
-            if (result.finished || !result.id) {
+            const isTerminal = result.finished || !result.id
+                || result.status === 'CANCELLING' || result.status === 'CANCELLED';
+
+            if (isTerminal) {
                 if (result.status === 'COMPLETED') {
                     onComplete(result);
                 } else {
@@ -2451,8 +2505,9 @@ class StructureHolder extends React.Component {
                     }
                 }
 
-                this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false));
+                this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false, null));
             } else {
+                const ji = {jobId: result.id, jobUrl: result['@url']};
                 if (firstPing) {
                     this.props.addValueToNewStructureColumn(
                         structureInfo.dataIndices[0],
@@ -2465,9 +2520,9 @@ class StructureHolder extends React.Component {
                         },
                         structureName
                     );
-                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, true));
+                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, true, ji));
                 } else {
-                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, null));
+                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, null, ji));
                 }
             }
         };
@@ -2479,6 +2534,7 @@ class StructureHolder extends React.Component {
             for (const i of props.replacedInputs || []) {
                 delete inputs[i];
             }
+            const service = getService();
             const fixedInputs = await preUploadFiles(service, inputs)
             this.setState({showingCzekoladaUI: undefined});
 
@@ -2505,16 +2561,36 @@ class StructureHolder extends React.Component {
 
             const uniqSeqs = Array.from(Object.entries(seqToMSAName));
 
+            const predictionKey = structureInfo.predictionKey;
+            const onMSAJobInfo = (ji) => {
+                this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, 'BUILDING MSAs', null, ji));
+                this.props.addValueToNewStructureColumn(
+                    structureInfo.dataIndices[0],
+                    {
+                        _gyde_analysis: 'pending',
+                        _gyde_message: 'Building MSAs',
+                        _gyde_method_key: methodKey,
+                        _gyde_job_name: jobName,
+                        _gyde_continue_after_msa: {...fixedInputs, _gyde_prediction_options: predictionOptions},
+                        _gyde_msa_job_id: ji.jobId,
+                        _gyde_msa_job_url: ji.jobUrl
+                    },
+                    structureName
+                );
+            };
+
             let msas;
             try {
-                msas = await Promise.all(uniqSeqs.map(([s, _]) => this.runMSA(s)));
+                msas = await Promise.all(uniqSeqs.map(([s, _], i) => this.runMSA(s, 'id', false, i === 0 ? onMSAJobInfo : null)));
             } catch (err) {
                 console.log(err);
+                this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false, null));
                 this.props.addValueToNewStructureColumn(
                     structureInfo.dataIndices[0],
                     {
                         _gyde_analysis: 'error',
-                        _gyde_message: 'MSAs failed ' + (err.message ?? err),
+                        _gyde_message: 'MSAs failed: ' + (err.message ?? err),
+                        _gyde_msa_job_url: err.jobUrl,
                         _gyde_method_key: methodKey,
                         _gyde_job_name: jobName
                     },
@@ -2554,7 +2630,7 @@ class StructureHolder extends React.Component {
 
         if (reconnect) {
             const structureName = methodKey + structureSuffixes[0];     // only for legacy jobs
-            structureInfos.forEach((structureInfo) => {
+            structureInfos.forEach(async (structureInfo) => {
                 const {proteinSequences, ligands, dnas, rnas, predictionKey} = structureInfo;
                 const dataIndex = structureInfo.dataIndices[0];
 
@@ -2565,6 +2641,8 @@ class StructureHolder extends React.Component {
                         const pending = oldStructureRecord?._gyde_analysis === 'pending' ? oldStructureRecord?._gyde_job_id : undefined,
                               pendingURL = oldStructureRecord?._gyde_analysis === 'pending' ? oldStructureRecord?._gyde_job_url : undefined,
                               continueAfterMSAs = oldStructureRecord?._gyde_analysis === 'pending' ? oldStructureRecord?._gyde_continue_after_msa : undefined,
+                              msaJobId = oldStructureRecord?._gyde_analysis === 'pending' ? oldStructureRecord?._gyde_msa_job_id : undefined,
+                              msaJobUrl = oldStructureRecord?._gyde_analysis === 'pending' ? oldStructureRecord?._gyde_msa_job_url : undefined,
                               reconnectJobName = oldStructureRecord?._gyde_job_name ?? methodKey;
 
                         if (pending) {
@@ -2573,10 +2651,52 @@ class StructureHolder extends React.Component {
                             };
                             this.slivkaSubscriptions.push(slivkaService.watchJob(pending, augListener, pendingURL));
                         } else if (continueAfterMSAs) {
+                            if (msaJobId) {
+                                try {
+                                    const resp = await fetch(msaJobUrl || `/api/jobs/${msaJobId}`);
+                                    if (resp.ok) {
+                                        const msaStatus = await resp.json();
+                                        const msaTerminal = msaStatus.finished || msaStatus.status === 'CANCELLING' || msaStatus.status === 'CANCELLED';
+                                        if (msaTerminal && msaStatus.status !== 'COMPLETED') {
+                                            this.props.addValueToNewStructureColumn(
+                                                dataIndex,
+                                                {
+                                                    _gyde_analysis: 'error',
+                                                    _gyde_message: 'MSA ' + (msaStatus.status || 'FAILED'),
+                                                    _gyde_msa_job_url: msaJobUrl,
+                                                    _gyde_method_key: methodKey,
+                                                    _gyde_job_name: reconnectJobName
+                                                },
+                                                column
+                                            );
+                                            return;
+                                        }
+                                    }
+                                } catch (err) {
+                                    console.warn('MSA job probe failed, will retry MSA:', err);
+                                }
+                                this.setState((oldState) => updatePredictionsState(
+                                    oldState, methodKey, predictionKey, 'BUILDING MSAs', null,
+                                    {jobId: msaJobId, jobUrl: msaJobUrl}
+                                ));
+                            }
                             const predictionOptions = continueAfterMSAs._gyde_prediction_options ?? {};
                             const fixedInputs = {...continueAfterMSAs};
                             delete fixedInputs._gyde_prediction_options;
-                            onJobReady(structureInfo, fixedInputs, inputConstructor, predictionOptions, reconnectJobName);
+                            onJobReady(structureInfo, fixedInputs, inputConstructor, predictionOptions, reconnectJobName)
+                                .catch((err) => {
+                                    console.error('MSA reconnect failed:', err);
+                                    this.props.addValueToNewStructureColumn(
+                                        dataIndex,
+                                        {
+                                            _gyde_analysis: 'error',
+                                            _gyde_message: 'Reconnect failed: ' + (err.message ?? err),
+                                            _gyde_method_key: methodKey,
+                                            _gyde_job_name: reconnectJobName
+                                        },
+                                        column
+                                    );
+                                });
                         }
                     }
                 }
@@ -2631,17 +2751,36 @@ class StructureHolder extends React.Component {
             );
 
             const uniqSeqs = Array.from(Object.entries(seqToMSAName));
+            const predictionKey = structureInfo.predictionKey;
+
+            const onMSAJobInfo = (ji) => {
+                this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, 'BUILDING MSAs', null, ji));
+                this.props.addValueToNewStructureColumn(
+                    structureInfo.dataIndices[0],
+                    {
+                        _gyde_analysis: 'pending',
+                        _gyde_message: 'Building MSAs',
+                        _gyde_method_key: methodKey,
+                        _gyde_continue_after_msa_nim: {_gyde_nim_key: token},
+                        _gyde_msa_job_id: ji.jobId,
+                        _gyde_msa_job_url: ji.jobUrl
+                    },
+                    structureName
+                );
+            };
 
             let msas;
             try {
-                msas = await Promise.all(uniqSeqs.map(([s, _]) => this.runMSA(s, 'text', reconnect)));
+                msas = await Promise.all(uniqSeqs.map(([s, _], i) => this.runMSA(s, 'text', reconnect, i === 0 ? onMSAJobInfo : null)));
             } catch (err) {
                 console.log(err);
+                this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false, null));
                 this.props.addValueToNewStructureColumn(
                     structureInfo.dataIndices[0],
                     {
                         _gyde_analysis: 'error',
-                        _gyde_message: 'MSAs failed ' + (err.message ?? err),
+                        _gyde_message: 'MSAs failed: ' + (err.message ?? err),
+                        _gyde_msa_job_url: err.jobUrl,
                         _gyde_method_key: methodKey,
                         _gyde_job_name: jobName
                     },
@@ -2691,7 +2830,7 @@ class StructureHolder extends React.Component {
         );
 
         if (reconnect) {
-            structureInfos.forEach((structureInfo) => {
+            structureInfos.forEach(async (structureInfo) => {
                 const {proteinSequences, ligands, dnas, rnas, predictionKey} = structureInfo;
                 const dataIndex = structureInfo.dataIndices[0];
 
@@ -2700,10 +2839,55 @@ class StructureHolder extends React.Component {
 
                     if (oldStructureRecord && oldStructureRecord._gyde_method_key === methodKey) {
                         const pending = oldStructureRecord?._gyde_analysis === 'pending' ? oldStructureRecord?._gyde_job_id : undefined,
-                              continueAfterMSAs = oldStructureRecord?._gyde_analysis === 'pending' ? oldStructureRecord?._gyde_continue_after_msa_nim : undefined;
+                              continueAfterMSAs = oldStructureRecord?._gyde_analysis === 'pending' ? oldStructureRecord?._gyde_continue_after_msa_nim : undefined,
+                              msaJobId = oldStructureRecord?._gyde_analysis === 'pending' ? oldStructureRecord?._gyde_msa_job_id : undefined,
+                              msaJobUrl = oldStructureRecord?._gyde_analysis === 'pending' ? oldStructureRecord?._gyde_msa_job_url : undefined;
 
                         if (continueAfterMSAs) {
-                            onJobReady(structureInfo, continueAfterMSAs._gyde_nim_key);
+                            if (msaJobId) {
+                                try {
+                                    const resp = await fetch(msaJobUrl || `/api/jobs/${msaJobId}`);
+                                    if (resp.ok) {
+                                        const msaStatus = await resp.json();
+                                        const msaTerminal = msaStatus.finished || msaStatus.status === 'CANCELLING' || msaStatus.status === 'CANCELLED';
+                                        if (msaTerminal && msaStatus.status !== 'COMPLETED') {
+                                            this.props.addValueToNewStructureColumn(
+                                                dataIndex,
+                                                {
+                                                    _gyde_analysis: 'error',
+                                                    _gyde_message: 'MSA ' + (msaStatus.status || 'FAILED'),
+                                                    _gyde_msa_job_url: msaJobUrl,
+                                                    _gyde_method_key: methodKey,
+                                                    _gyde_job_name: methodKey
+                                                },
+                                                column
+                                            );
+                                            return;
+                                        }
+                                    }
+                                } catch (err) {
+                                    console.warn('MSA job probe failed, will retry MSA:', err);
+                                }
+                                const pk = structureInfo.predictionKey;
+                                this.setState((oldState) => updatePredictionsState(
+                                    oldState, methodKey, pk, 'BUILDING MSAs', null,
+                                    {jobId: msaJobId, jobUrl: msaJobUrl}
+                                ));
+                            }
+                            onJobReady(structureInfo, continueAfterMSAs._gyde_nim_key)
+                                .catch((err) => {
+                                    console.error('MSA reconnect failed:', err);
+                                    this.props.addValueToNewStructureColumn(
+                                        dataIndex,
+                                        {
+                                            _gyde_analysis: 'error',
+                                            _gyde_message: 'Reconnect failed: ' + (err.message ?? err),
+                                            _gyde_method_key: methodKey,
+                                            _gyde_job_name: methodKey
+                                        },
+                                        column
+                                    );
+                                });
                         }
                     }
                 }
@@ -4178,7 +4362,10 @@ class StructureHolder extends React.Component {
 
             let firstPing = true;
             const listener = async (result) => {
-                if (result.finished || !result.id) {
+                const isTerminal = result.finished || !result.id
+                    || result.status === 'CANCELLING' || result.status === 'CANCELLED';
+
+                if (isTerminal) {
                     if (result.status === 'COMPLETED') {
                         const fetchResult = await slivkaService.fetch(
                             result.id,
@@ -4223,7 +4410,7 @@ class StructureHolder extends React.Component {
                         }
                     }
 
-                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false));
+                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false, null));
                 } else {
                     if (firstPing) {
                         this.props.addValueToNewStructureColumn(
@@ -4233,7 +4420,8 @@ class StructureHolder extends React.Component {
                         );
                         firstPing = false;
                     }
-                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, null /* no update */));
+                    const ji = {jobId: result.id, jobUrl: result['@url']};
+                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, null /* no update */, ji));
                 }
             };
 
@@ -4320,7 +4508,10 @@ class StructureHolder extends React.Component {
 
             let firstPing = true;
             const listener = async (result) => {
-                if (result.finished || !result.id) {
+                const isTerminal = result.finished || !result.id
+                    || result.status === 'CANCELLING' || result.status === 'CANCELLED';
+
+                if (isTerminal) {
                     if (result.status === 'COMPLETED') {
                         const fetchResult = await slivkaService.fetch(
                             result.id,
@@ -4365,7 +4556,7 @@ class StructureHolder extends React.Component {
                         }
                     }
 
-                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false));
+                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false, null));
                 } else {
                     if (firstPing) {
                         this.props.addValueToNewStructureColumn(
@@ -4375,7 +4566,8 @@ class StructureHolder extends React.Component {
                         );
                         firstPing = false;
                     }
-                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, null /* no update */));
+                    const ji = {jobId: result.id, jobUrl: result['@url']};
+                    this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, result.status, null /* no update */, ji));
                 }
             };
 
