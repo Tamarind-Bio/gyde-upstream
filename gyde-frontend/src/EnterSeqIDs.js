@@ -154,6 +154,7 @@ async function fetchPdbChains(ids, update) {
         if (sids.length > 0) {
             const resp = await fetch('https://data.rcsb.org/graphql', {
                 method: 'POST',
+                headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({query: PDB_QUERY, variables: {ids: sids}})
             });
             if (!resp.ok) {

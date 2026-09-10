@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo } from "react";
 import {createPortal} from 'react-dom';
 import { saveAs } from "file-saver";
+import { zipSync } from "fflate";
 import {
     Button, CircularProgress, IconButton, Menu, MenuItem, Stack, TextField, Radio, ListItemText, Checkbox,
     FormControlLabel, Tooltip
@@ -10,7 +11,7 @@ import { ArrowDropDown, Download, ArrowRight, Visibility, Cancel } from "@mui/ic
 import { PdbUploadButton } from './PdbUploadButton';
 import { navbarButtonCSS } from "../NavBar";
 import GMenu, { GMenuItem, GDropDown, GSubMenu } from '../utils/GMenu';
-import { getStructureBlob, mimeToStructureType } from "./utils";
+import { getStructureBlob, structureDownloadFilename, structureDownloadFormat } from "./utils";
 
 import {useSlivka} from '../czekolada/lib';
 
@@ -26,6 +27,7 @@ export const StructureNavBar = (props) => {
 
     // structure prediction menu
     const [structurePredictionAnchor, setStructurePredictionAnchor] = useState(null);
+    const [downloadProgress, setDownloadProgress] = useState(null);
 
     const structurePredictionMenuOnClick = (event) => {
         setStructurePredictionAnchor(event.currentTarget);
@@ -48,6 +50,54 @@ export const StructureNavBar = (props) => {
         padding: props.sequenceCompact ? '1px' : null,
         borderRadius: props.sequenceCompact ? '5px' : '10px'
     }
+
+    const downloadStructures = useCallback(async () => {
+        const structureInfos = props.structureInfos || [];
+        if (!structureInfos.length || downloadProgress) return;
+
+        const usedNames = new Set();
+        const files = [];
+        const failures = [];
+
+        for (let i = 0; i < structureInfos.length; ++i) {
+            const si = structureInfos[i];
+            setDownloadProgress(`${i + 1}/${structureInfos.length}`);
+            try {
+                const structureBlob = await getStructureBlob(si.url);
+                const format = structureDownloadFormat(si, structureBlob);
+                const filename = structureDownloadFilename(si, format, usedNames);
+                files.push({ filename, blob: structureBlob });
+            } catch (err) {
+                failures.push({
+                    label: si.rowName || si.structureLabel || si.structureKey || `structure ${i + 1}`,
+                    message: err?.message || String(err)
+                });
+            }
+        }
+
+        try {
+            if (files.length === 1) {
+                saveAs(files[0].blob, files[0].filename);
+            } else if (files.length > 1) {
+                const entries = {};
+                for (const { filename, blob } of files) {
+                    entries[filename] = new Uint8Array(await blob.arrayBuffer());
+                }
+                const zipped = zipSync(entries);
+                saveAs(new Blob([zipped], { type: 'application/zip' }), 'structures.zip');
+            }
+        } catch (err) {
+            failures.push({ label: 'zip', message: err?.message || String(err) });
+        }
+
+        setDownloadProgress(null);
+
+        if (failures.length) {
+            const lines = failures.slice(0, 8).map((f) => `${f.label}: ${f.message}`);
+            if (failures.length > 8) lines.push(`…and ${failures.length - 8} more`);
+            alert(`Downloaded ${files.length}/${structureInfos.length} structures.\n\n${lines.join('\n')}`);
+        }
+    }, [props.structureInfos, downloadProgress]);
 
     return (
         <React.Fragment>
@@ -97,19 +147,14 @@ export const StructureNavBar = (props) => {
                     Auto-superpose
                 </Button>
                 <Button
-                    disabled={!props.structureInfos || props.structureInfos.length === 0}
+                    disabled={!!downloadProgress || !props.structureInfos || props.structureInfos.length === 0}
                     sx={buttonStyle}
-                    onClick={async () => {
-                        for (const si of props.structureInfos) {
-                            const structureBlob = await getStructureBlob(si.url);
-                            let format = mimeToStructureType(si.type || structureBlob.type);
-                            if (format === 'mmcif') format='cif';
-                            saveAs(structureBlob, `${si.rowName}_${si.structureKey}.${format}`)
-                        }
-                    }}
+                    onClick={downloadStructures}
                 >
-                    Download structures
-                    <Download sx={{fontSize: props.compact ? '16px' : 'auto'}}/>
+                    {downloadProgress ? `Downloading ${downloadProgress}…` : 'Download structures'}
+                    {downloadProgress
+                        ? <CircularProgress size={12} sx={{ml: '6px'}}/>
+                        : <Download sx={{fontSize: props.compact ? '16px' : 'auto'}}/>}
                 </Button>
                 <PdbUploadButton
                     columnarData={props.columnarData}

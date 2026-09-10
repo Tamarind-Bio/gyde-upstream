@@ -339,6 +339,24 @@ class _App extends React.Component {
             ];
         }
 
+        // Always union-promote columns whose names end in `structure_url` into structureKeys.
+        // send-to-gyde loads via session restore (often with a default/partial structureKeys
+        // list), so skipping when props.structureKeys is set would miss columns like
+        // refolding_structure_url. Extra curated keys are preserved; matching is
+        // case-insensitive to match Upload.js nameToDefaultType.
+        const autoStructureKeys = [...(state.structureKeys || [])];
+        const candidateColumns = new Set([
+            ...(state.dataColumns || []),
+            ...Object.keys(state.columnarData || {}),
+        ]);
+        for (const c of candidateColumns) {
+            if (typeof c === 'string' && c.toLowerCase().endsWith('structure_url')
+                    && autoStructureKeys.indexOf(c) < 0) {
+                autoStructureKeys.push(c);
+            }
+        }
+        state.structureKeys = autoStructureKeys;
+
         return state;
 
     }
@@ -751,12 +769,6 @@ class _App extends React.Component {
 
         if (tabData.isAntibody && !tabData.lcColumn && !tabData.hcColumn) {
             throw new Error('antibody datasets should have at least one of HC or LC');
-        }
-
-        for (const c of dataColumns) {
-            if (c.endsWith("structure_url") && tabData.structureKeys.indexOf(c) < 0) {
-                tabData.structureKeys.push(c);
-            }
         }
 
         if (!tabData._external_id) {

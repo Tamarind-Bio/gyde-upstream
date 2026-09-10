@@ -31,10 +31,8 @@ export function selectionCmp(a, b) {
 export function structureInfoEqual(a, b) {
     if (a.url !== b.url) return false;
     if (a.structureKey !== b.structureKey) return false;
-    if (!a.url && !b.url) {
-        if (!arrayCmp(a.sequences, b.sequences)) return false;
-        if (!arrayCmp(a.alignments, b.alignments)) return false;
-    }
+    if (!arrayCmp(a.sequences, b.sequences)) return false;
+    if (!arrayCmp(a.alignments, b.alignments)) return false;
     if (!arrayCmp(a.explicitChains, b.explicitChains)) return false;
     if (!arrayCmpDeep(a.explicitMappings, b.explicitMappings)) return false;
     if (a.modelIndex !== b.modelIndex) return false;
@@ -100,6 +98,13 @@ export function mimeToStructureType(type) {
     }
 }
 
+export function urlToStructureType(url) {
+    if (typeof url !== 'string') return;
+    const name = url.split('/').pop()?.split('?')[0]?.replace(/\.gz$/, '');
+    if (name?.endsWith('.sdf')) return 'sdf';
+    if (name?.endsWith('.cif') || name?.endsWith('.mmcif')) return 'mmcif';
+}
+
 export async function parseStructureData(structureData, progressCallback) {
     let structureText;
     let format = 'pdb';
@@ -119,6 +124,8 @@ export async function parseStructureData(structureData, progressCallback) {
     } else {
         url = structureData._gyde_url;
         mimeType = structureData._gyde_type;
+        const toks = (url || '').split('/');
+        name = toks[toks.length - 1];
     }
 
     const baseResponse = await fetch(url);
@@ -185,18 +192,74 @@ export async function parseStructureData(structureData, progressCallback) {
     return {structureText: structureText, format: format};
 }
 
-export async function getStructureBlob(structureData) {
-    let structureBlob
+function structureFetchUrl(structureData) {
+    if (typeof(structureData) === "string") return structureData;
+    return structureData?._gyde_url;
+}
 
+async function fetchStructureBlob(url, cache) {
+    const response = await fetch(url, { cache });
+    if (response.status === 304) {
+        return { response, blob: new Blob() };
+    }
+    if (!response.ok) {
+        if (response.status === 500) {
+            const body = await response.text();
+            if (body.length > 5 && body.length < 100000) {
+                throw Error('Could not fetch structure: ' + body.replace(/<[^>]+>/g, '').split('\n').filter((l) => l.length > 5)[0])
+            }
+        }
+        throw Error('Could not fetch structure: ' + (response.statusText || response.status));
+    }
+    return { response, blob: await response.blob() };
+}
+
+export async function getStructureBlob(structureData) {
     if (structureData instanceof Blob) {
-        structureBlob = structureData
-    } else if (typeof(structureData) === "string") {
-        const response = await fetch(structureData);
-        structureBlob = await response.blob()
-    } else {
-        const response = await fetch(structureData._gyde_url);
-        structureBlob = await response.blob();
+        if (!structureData.size) {
+            throw Error('Could not fetch structure: empty data');
+        }
+        return structureData;
     }
 
-    return structureBlob
+    const url = structureFetchUrl(structureData);
+    if (!url) {
+        throw Error('Could not fetch structure: missing URL');
+    }
+
+    let result = await fetchStructureBlob(url, 'reload');
+    if (result.response.status === 304 || !result.blob.size) {
+        result = await fetchStructureBlob(url, 'reload');
+    }
+    if (result.response.status === 304 || !result.blob.size) {
+        throw Error('Could not fetch structure: empty response');
+    }
+    return result.blob;
+}
+
+export function structureDownloadFormat(structureInfo, structureBlob) {
+    let format = mimeToStructureType(structureInfo?.type || structureBlob?.type);
+    if (format === 'pdb') {
+        format = urlToStructureType(structureInfo?.url) || format;
+    }
+    if (format === 'mmcif') format = 'cif';
+    return format;
+}
+
+export function structureDownloadFilename(structureInfo, format, usedNames) {
+    const parts = [
+        structureInfo?.rowName,
+        structureInfo?.structureKey,
+        structureInfo?.structureLabel ?? structureInfo?.dataIndices?.[0]
+    ].filter((p) => p !== undefined && p !== null && `${p}` !== '');
+    const base = (parts.join('_') || 'structure').replace(/[/\\?%*:|"<>]/g, '_');
+    const ext = format || 'pdb';
+    let name = `${base}.${ext}`;
+    let n = 2;
+    while (usedNames && usedNames.has(name)) {
+        name = `${base}_${n}.${ext}`;
+        n += 1;
+    }
+    if (usedNames) usedNames.add(name);
+    return name;
 }
