@@ -182,6 +182,8 @@ export function hydrateTabState(tabData) {
 
     delete sessionProps['heatmapDataObject']; // v0.4.0 would erroneously save this.
                                               // make sure it doesn't get restored.
+    delete sessionProps['mafftPending'];      // Never restore in-progress MAFFT state;
+                                              // alignment will be re-triggered if needed.
 
     // Development versions used strings rather than objects to represent variants.  There
     // shoudln't be any such datasets on the PROD server, but clearing these out (and bumping

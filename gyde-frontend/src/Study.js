@@ -558,8 +558,10 @@ class _Study extends React.Component {
         if (oldProps.alignmentTarget !== this.props.alignmentTarget && this.props.isAntibody) {
             const {alignmentTarget, alignmentTargets} = this.props;
             const realAlignmentTarget = alignmentTarget?.startsWith('_seed+') ? alignmentTarget.substring(6) : alignmentTarget;
-            const target = alignmentTargets.filter(({name}) => name === realAlignmentTarget)[0] || alignmentTargets[0];
-            this.runNumberingAlignment(target.name, target.aligner, alignmentTarget);
+            const target = alignmentTargets?.filter(({name}) => name === realAlignmentTarget)[0] || alignmentTargets?.[0];
+            if (target) {
+                this.runNumberingAlignment(target.name, target.aligner, alignmentTarget);
+            }
         }
 
         function extraAnalysisColumns(props) {
@@ -593,7 +595,10 @@ class _Study extends React.Component {
             }
         }
 
-        if (this.props.seqColumns.length > 0 && !this.props.msaColumns && !this.props.specialAlign && this.props.alignmentKey !== 'seqs' && !this.props.error) {
+        const msaColumnsStale = this.props.msaColumns
+            && this.props.msaColumns.some(mc => mc && !this.props.columnarData[mc.column]);
+
+        if (this.props.seqColumns.length > 0 && (!this.props.msaColumns || msaColumnsStale) && !this.props.mafftPending && !this.props.specialAlign && this.props.alignmentKey !== 'seqs' && (!this.props.error || msaColumnsStale)) {
             const msaColumns = this.props.seqColumns.map(({column: c}) => {
                 let aliColName = '_gyde_msa_' + c;
                 while (this.props.columnarData[aliColName]) aliColName += 'Z';
@@ -640,7 +645,7 @@ class _Study extends React.Component {
                     }));
                 } catch (err) {
                     this.setState({
-                        msaColumns: undefined,
+                        msaColumns: null,
                         mafftPending: false,
                         error: err.message || err
                     })
@@ -805,8 +810,10 @@ class _Study extends React.Component {
         // run Absolve to get CDRs and numbering.
         if (this.props.storedAlignment !== alignmentTarget && this.props.isAntibody) {
             const realAlignmentTarget = alignmentTarget?.startsWith('_seed+') ? alignmentTarget.substring(6) : alignmentTarget;
-            const target = alignmentTargets.filter(({name}) => name === realAlignmentTarget)[0] || alignmentTargets[0];
-            this.runNumberingAlignment(target.name, target.aligner, alignmentTarget)
+            const target = alignmentTargets?.filter(({name}) => name === realAlignmentTarget)[0] || alignmentTargets?.[0];
+            if (target) {
+                this.runNumberingAlignment(target.name, target.aligner, alignmentTarget)
+            }
         }
 
         window.scrollTo(0, 0);
