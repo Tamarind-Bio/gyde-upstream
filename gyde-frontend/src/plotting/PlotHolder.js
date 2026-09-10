@@ -457,6 +457,37 @@ function validColumns(columnarData, dataColumns, columnTypes) {
     return validColumns;
 }
 
+class PlotErrorBoundary extends React.Component {
+    constructor(props) {
+        super(props);
+        this.state = {error: undefined};
+    }
+
+    static getDerivedStateFromError(err) {
+        return {error: err};
+    }
+
+    render() {
+        const {error} = this.state;
+        if (error) {
+            return (
+                <div>
+                    Sorry, rendering of this widget has failed.
+
+                    <pre>
+                        { error.message || error.toString() }
+                    </pre>
+
+                    <Button onClick={() => this.setState({error: undefined})}>
+                        Try again.
+                    </Button>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
+
 export class PlotCombo extends React.Component {
     constructor(props) {
         super(props);
@@ -484,8 +515,10 @@ export class PlotCombo extends React.Component {
                                     export={this.export} />
                 </div>
                 <div style={plotStyle}>
-                    <PlotHolder {...props}
-                                svgRef={this.svgRef} />
+                    <PlotErrorBoundary>
+                        <PlotHolder {...props}
+                                    svgRef={this.svgRef} />
+                    </PlotErrorBoundary>
                 </div>
             </React.Fragment>
         );

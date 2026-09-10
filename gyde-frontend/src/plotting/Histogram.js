@@ -131,7 +131,7 @@ class Histogram extends React.Component {
 
     render() {
         const {
-            selection, filteredItems, dataRows, hideFiltered,
+            selection, filteredItems=[], dataRows=[], hideFiltered,
             minX, maxX, minY, maxY, thresholds, colour, selectionColour, filteredColour,
             xPxPerTick, yPxPerTick, categorical, logX,
             marginLeft, marginRight, marginTop, marginBottom, xAxisName} = this.props;
@@ -151,14 +151,13 @@ class Histogram extends React.Component {
         const filteredDataIDs = new Set(filteredItems);
 
         let xScale, xScaleCategorical, unfilteredBins, bins;
+        let xRangeMin = 0, xRangeMax = width;
         if (categorical) {
-            let xRangeMin = 0,
-                xRangeMax = width;
-
             const nminX = typeof(minX) === 'number' ? minX : 0,
                   nmaxX = typeof(maxX) === 'number' ? maxX : 1;
 
-            const w = 1.0 / (nmaxX - nminX) * width;
+            const span = nmaxX - nminX;
+            const w = (span === 0 ? 1 : 1.0 / span) * width;
             xRangeMin = -w * nminX;
             xRangeMax = -w * nminX + w;
 
@@ -172,8 +171,6 @@ class Histogram extends React.Component {
                 bin.x1 = xScaleCategorical(group) + 0.45 * xScaleCategorical.bandwidth();
                 return bin;
             })
-
-            xScale = d3.scaleLinear().domain([unfilteredBins[0].x0, unfilteredBins[unfilteredBins.length-1].x1]).range([xRangeMin, xRangeMax]);
         } else {
             const binner = unfilteredBins =  d3.bin()
                 .value(logX ? (d) => {const v = x[d]; if (typeof(v) === 'number') return Math.log10(v);} : (d) => x[d])
@@ -187,6 +184,16 @@ class Histogram extends React.Component {
             unfilteredBins = binner(dataRows);
         }
 
+        const firstBin = unfilteredBins?.[0];
+        const lastBin = unfilteredBins?.[unfilteredBins.length - 1];
+        if (!firstBin || firstBin.x0 == null || lastBin == null || lastBin.x1 == null) {
+            return (
+              <div style={{width: '100%', minHeight: height + marginTop + marginBottom, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666'}} ref={this.props.targetRef}>
+                No values to plot
+              </div>
+            );
+        }
+
         bins = filteredItems.length === dataRows.length
           ? unfilteredBins
           : unfilteredBins.map((ubin) => {
@@ -198,10 +205,10 @@ class Histogram extends React.Component {
 
 
         if (categorical) {
-            // scale already defined
+            xScale = d3.scaleLinear().domain([firstBin.x0, lastBin.x1]).range([xRangeMin, xRangeMax]);
         } else if (logX) {
             xScale = d3.scaleLog()
-              .domain([Math.pow(10, unfilteredBins[0].x0), Math.pow(10, unfilteredBins[unfilteredBins.length-1].x1)])
+              .domain([Math.pow(10, firstBin.x0), Math.pow(10, lastBin.x1)])
               .range([0, width]);
             for (const bin of bins) {
                 bin.x0 = Math.pow(10, bin.x0);
@@ -213,7 +220,7 @@ class Histogram extends React.Component {
             }
         } else {
             xScale = d3.scaleLinear()
-              .domain([unfilteredBins[0].x0, unfilteredBins[unfilteredBins.length-1].x1])
+              .domain([firstBin.x0, lastBin.x1])
               .range([0, width]);
         }
 

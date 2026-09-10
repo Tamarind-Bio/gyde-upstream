@@ -224,7 +224,7 @@ class Scatter extends React.Component {
 
     x = memoize((x, categorical) => categorical ? x = x.map((v) => v ? typeof(v) !== 'string' ? v.toString() : v : v ) : x);
 
-    xScaleCalc = memoize((x, hideFiltered, filtererDataIDs, categorical, logX, minX, maxX, width) => {
+    xScaleCalc = memoize((x, hideFiltered, filteredDataIDs, categorical, logX, minX, maxX, width) => {
         let [xMin, xMax] = d3.extent(hideFiltered ? x.filter((_, i) => filteredDataIDs.has(i)) : x);
         if (minX !== undefined) xMin=minX;
         if (maxX !== undefined) xMax=maxX;
@@ -281,7 +281,7 @@ class Scatter extends React.Component {
         return yScale
     });
 
-    colourByCalc = memoize((colourBy, colourByCategorical, logColourBy) => {
+    colourByCalc = memoize((colourBy, colourByCategorical, logColourBy, minColourBy, maxColourBy, height) => {
         let colourByScale, colourByLegendScale;
 
         if (colourBy) {
@@ -335,7 +335,7 @@ class Scatter extends React.Component {
         const filteredDataIDs = this.filteredDataIDs(filteredItems);
 
         const xScale = this.xScaleCalc(x, hideFiltered, filteredDataIDs, categorical, logX, minX, maxX, width);
-        const yScale = this.yScaleCalc(y, hideFiltered, filteredDataIDs, categorical, minY, minY, logY, height, pairedCategoryFn);
+        const yScale = this.yScaleCalc(y, hideFiltered, filteredDataIDs, categorical, minY, maxY, logY, height, pairedCategoryFn);
 
         let pairOffset = CONST_ZERO;
         let pairedCatInGroups = null,
@@ -381,7 +381,7 @@ class Scatter extends React.Component {
             };
         }
 
-        const {colourByScale, colourByLegendScale} = this.colourByCalc(colourBy, colourByCategorical, logColourBy);
+        const {colourByScale, colourByLegendScale} = this.colourByCalc(colourBy, colourByCategorical, logColourBy, minColourBy, maxColourBy, height);
 
         const correlation = this.pearsonCorrelation(x, y)
 
