@@ -1,4 +1,5 @@
 import React from 'react';
+import TamarindLogo from './TamarindLogo';
 import {Box, Chip, Stack, Typography, ThemeProvider, createTheme} from '@mui/material';
 
 const theme = createTheme({
@@ -16,7 +17,7 @@ export const predictionName = method => ({
     'openfold3-v1':'OpenFold3', 'abodybuilder2':'ABodyBuilder2', 'ibex':'ABodyBuilder3',
 }[method] || method);
 export const predictionMenuLabel = (name, hosted) => hosted
-    ? `${name.replace(/ \(Tamarind(?: Bio)?\)$/, '')} (Tamarind Bio)` : name;
+    ? <>{name.replace(/ \(Tamarind(?: Bio)?\)$/, '')}<TamarindLogo/></> : name;
 
 export function PredictionTheme({hosted, children}) {
     return hosted ? <ThemeProvider theme={theme}>{children}</ThemeProvider> : children;

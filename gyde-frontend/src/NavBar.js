@@ -1,3 +1,4 @@
+import TamarindLogo from './integrations/tamarind/TamarindLogo';
 import {isTamarindCompute} from './compute';
 import React, { useCallback, useState, useContext, createContext } from "react";
 import {
@@ -509,7 +510,7 @@ const AnalysisMenu = (props) => {
                     onClick={tap}
                     disabledMessage="Requires antibody dataset, and at least one selected sequence"
                 >
-                    TAP
+                    <span>TAP{isTamarindCompute() && <TamarindLogo/>}</span>
                 </ExplainDisabledMenuItem> }
                 { mdService && <ExplainDisabledMenuItem
                     disabled={!moldesk}
@@ -533,7 +534,7 @@ const AnalysisMenu = (props) => {
                     disabledMessage="Requires one selected sequence, and some selected columns."
                     style={{display: 'flex', justifyContent: 'space-between'}}
                 >
-                    ProteinMPNN
+                    <span>ProteinMPNN{isTamarindCompute() && <TamarindLogo/>}</span>
                     <OpenInNew/>
                 </ExplainDisabledMenuItem>}
                 { environment?.featureFlags?.ligandMPNN && ligandMPNNService
@@ -543,7 +544,7 @@ const AnalysisMenu = (props) => {
                        disabledMessage="Requires one selected sequence, and some selected columns."
                        style={{display: 'flex', justifyContent: 'space-between'}}
                     >
-                        LigandMPNN
+                        <span>LigandMPNN{isTamarindCompute() && <TamarindLogo/>}</span>
                         <OpenInNew/>
                     </ExplainDisabledMenuItem>
                   : undefined }
@@ -929,7 +930,7 @@ const ThermoMPNNMenu = (props) => {
                 noClose
                 style={{display: 'flex', justifyContent: 'space-between'}}
             >
-                ThermoMPNN
+                <span>ThermoMPNN{isTamarindCompute() && <TamarindLogo/>}</span>
                 <OpenInNew/>
             </GMenuItem>
             <ThermoMPNNDialog
