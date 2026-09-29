@@ -69,3 +69,25 @@ test('stale polling and submission responses cannot undo terminal or cancellatio
     await jobs.save(stale,{state:'COMPLETED'});
     assert.equal((await jobs.save(stale,{state:'PENDING'})).state,'COMPLETED');
 });
+
+test('a concurrent poll during cancellation observes persisted intent',async()=>{
+    const {jobs,client}=setup();const first=await jobs.submit('mafft-7.475',mafft(),'cancel-race-key');
+    client.cancel=async name=>{
+        client.jobs.get(name).JobStatus='Stopped';
+        assert.equal((await jobs.poll(first.id)).status,'CANCELLED');
+    };
+    assert.equal((await jobs.cancel(first.id)).status,'CANCELLED');
+});
+test('completed cache entries are separated by configured project',async()=>{
+    const {jobs,client,collection}=setup();const first=await jobs.submit('mafft-7.475',mafft(),'first-project-key','readwrite');
+    client.jobs.get(first.jobName).JobStatus='Complete';await jobs.poll(first.id);
+    const other=new PersonalJobs(collection,client,catalog,{...config,projectTag:'proj_other'});
+    const next=await other.submit('mafft-7.475',mafft(),'other-project-key','readwrite');
+    assert.notEqual(next.id,first.id);
+    assert.equal(client.calls.filter(c=>c[0]==='submit').length,2);
+});
+test('malformed remote job identities fail closed with a sanitized upstream error',async()=>{
+    const {jobs,client}=setup();const first=await jobs.submit('mafft-7.475',mafft(),'bad-identity-key');
+    client.job=async()=>null;
+    await assert.rejects(()=>jobs.poll(first.id),error=>error.status===502 && /identity/.test(error.message));
+});

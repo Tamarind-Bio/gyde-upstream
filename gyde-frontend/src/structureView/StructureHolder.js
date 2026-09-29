@@ -2346,8 +2346,10 @@ class StructureHolder extends React.Component {
             const predictionKey = structureInfo.predictionKey;
             const pending = undefined, probeOnly=false; // FIXME
 
-            if (firstPing) {
-                // We want to *always* run this on first ping, otherwise the dialog box won't close on cache hits
+            if (firstPing && !isTamarindCompute()) {
+                // Personal compute keeps the dialog open until every selected row
+                // is acknowledged, so a later row failure remains visible.
+                // Legacy Slivka closes on first ping, including cache hits
                 this.setState({showingCzekoladaUI: undefined});
             }
 

@@ -173,7 +173,7 @@ export function AppRoutes() {
 function Hello() {
     return (
         <div>
-            Compute jobs run on <a href="https://tamarind.bio">Tamarind Bio</a>.
+            {isTamarindCompute() ? <>Compute jobs run on <a href="https://tamarind.bio">Tamarind Bio</a>.</> : 'Compute jobs run on the configured Slivka service.'}
         </div>
     );
 }
@@ -436,7 +436,7 @@ function FileConfigControl({param, value, index, updateServiceConfig, disabled=f
     if (value?._slivkaFile) {
         return (
             <div>
-                Tamarind file: <a href={`/media/uploads/${value._slivkaFile}`} download>{value._slivkaFileName || value._slivkaFile}</a>&nbsp;
+                Compute file: <a href={`/media/uploads/${value._slivkaFile}`} download>{value._slivkaFileName || value._slivkaFile}</a>&nbsp;
                 <Button disabled={disabled} onClick={onRemove}>Use another file</Button>
             </div>
         )
@@ -581,7 +581,7 @@ export function ServiceLauncher({service, ...otherProps}) {
                 );
             } else if (error) {
                 return (
-                    <div style={{color: 'red'}}>Could not load Tamarind tools. Please refresh and try again.</div>
+                    <div style={{color: 'red'}}>Could not load compute tools. Please refresh and try again.</div>
                 );
             } else {
                 return (
@@ -867,6 +867,7 @@ export function ServiceLauncherImpl({
                 })}
             </Form>
 
+            {requestError && <div role="alert" style={{color: 'red'}}>{requestError}</div>}
             <Row>
                 { showSubmitButton
                   ? <Col sm={3}>

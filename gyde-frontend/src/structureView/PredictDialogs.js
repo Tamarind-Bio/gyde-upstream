@@ -1,5 +1,5 @@
 import {isTamarindCompute} from '../compute';
-import React, {useMemo, useState, useReducer, useCallback, useEffect, createContext, useContext} from 'react';
+import React, {useMemo, useState, useRef, useReducer, useCallback, useEffect, createContext, useContext} from 'react';
 import {CircularProgress, Checkbox, FormControlLabel, Typography, Stack, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField} from '@mui/material';
 
 import {PredictionTheme, PredictionInputs, predictionName} from '../integrations/tamarind/TamarindPredictionLayout';
@@ -38,6 +38,8 @@ export function StructurePredictDialog({
     const [jobName, setJobName] = useState();
     const [error, setError] = useState();
     const [submitting, setSubmitting] = useState(false);
+    const submitLock = useRef(false);
+    const submittedRows = useMemo(() => new Set(), [method, structureInfos]);
     const slivkaService = useSlivka();
 
 
@@ -117,16 +119,18 @@ export function StructurePredictDialog({
     const hideParams = useMemo(() => managedHideParams || Object.keys(boundParams || {}), [managedHideParams, boundParams]);
 
     const runPredictions = useCallback(async () => {
-        if (submitting) return;
+        if (submitLock.current) return;
+        submitLock.current = true;
         setSubmitting(true);
         setError(undefined);
         try {
             const service = slivkaService.services.find((s) => s.id === method);
-            if (!service) throw Error('This Tamarind tool is unavailable. Refresh the page and try again.');
+            if (!service) throw Error('This compute tool is unavailable. Refresh the page and try again.');
             // Validate every selected row before any job is submitted.
             const inputs = structureInfos.map(info => inputConstructor(info, predictionOptions));
             for (let i = 0; i < structureInfos.length; i++) {
                 const structureInfo = structureInfos[i];
+                if (submittedRows.has(structureInfo)) continue;
                 if (onJobReady) {
                     await onJobReady(structureInfo, jobParameters, inputConstructor, predictionOptions, jobName);
                 } else {
@@ -138,13 +142,16 @@ export function StructurePredictDialog({
                             firstPing = false;
                         });
                 }
+                submittedRows.add(structureInfo);
             }
+            onHide();
         } catch (err) {
-            setError(err.message || String(err));
+            setError(`${err.message || String(err)}${submittedRows.size ? ` ${submittedRows.size} row(s) already submitted; retry will continue with the remaining rows.` : ''}`);
         } finally {
+            submitLock.current = false;
             setSubmitting(false);
         }
-    }, [submitting, structureInfos, jobParameters, onJobSubmitted, onJobReady, inputConstructor, predictionOptions, jobName, method, slivkaService]);
+    }, [submittedRows, onHide, structureInfos, jobParameters, onJobSubmitted, onJobReady, inputConstructor, predictionOptions, jobName, method, slivkaService]);
 
     const textfieldCallback = useCallback((field) => {
         if (field) {
@@ -164,7 +171,7 @@ export function StructurePredictDialog({
                     onClose={submitting ? undefined : onHide}
                     fullWidth maxWidth={hosted ? "md" : "sm"}>
                 <DialogTitle id="upload-structure-dialog-title" sx={hosted ? {textAlign:"center",pt:3} : undefined}>
-                    {hosted ? predictionName(method) : `Run ${method === 'boltz-2' ? 'Boltz-2 with Tamarind' : method}`}
+                    {hosted ? predictionName(method) : `Run ${method}`}
                     {hosted && <Typography variant="body2" color="text.secondary" sx={{mt:1}}>Structure Prediction · Tamarind Bio</Typography>}
                 </DialogTitle>
                 <DialogContent

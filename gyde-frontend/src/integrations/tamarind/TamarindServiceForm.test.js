@@ -110,3 +110,12 @@ test('pending jobs lock array elements and their add action', async () => {
     expect(legacyRoot.querySelector('input').disabled).toBe(true);
     expect([...legacyRoot.querySelectorAll('button')].find(button => button.textContent === '+').disabled).toBe(true);
 });
+
+test('Slivka submission errors remain visible in its default launcher',async()=>{
+    delete process.env.REACT_APP_COMPUTE_PROVIDER;
+    client.submit.mockRejectedValueOnce(new Error('Slivka unavailable'));
+    await act(async()=>root.render(<ServiceLauncherImpl service={service} showProgress />));
+    await act(async()=>Simulate.click(findButton('Run Job')));
+    expect(container.querySelector('[role="alert"]').textContent).toContain('Slivka unavailable');
+    expect(findButton('Run Job').disabled).toBe(false);
+});

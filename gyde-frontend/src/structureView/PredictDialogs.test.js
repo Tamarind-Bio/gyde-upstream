@@ -49,3 +49,13 @@ test('shows backend submission errors and permits a retry with the same settings
     expect(mockSubmit).toHaveBeenCalledTimes(2);
     expect(mockSubmit.mock.calls[1][1]).toEqual({sequence:'ACD',numRecycles:3});
 });
+
+test('retrying a partially submitted batch does not submit its accepted rows again',async()=>{
+    mockSubmit.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('Second row denied')).mockResolvedValueOnce({});
+    await render([{proteinSequences:['ACD']},{proteinSequences:['EFG']}]);
+    await clickRun();
+    expect(el.textContent).toContain('1 row(s) already submitted');
+    await clickRun();
+    expect(mockSubmit).toHaveBeenCalledTimes(3);
+    expect(mockSubmit.mock.calls.map(call=>call[1].sequence)).toEqual(['ACD','EFG','EFG']);
+});

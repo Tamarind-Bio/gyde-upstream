@@ -112,7 +112,9 @@ is not an implementation of that flow.
 
 ## Personal setup
 
-Use Node.js 22 or later and an existing local GYDE MongoDB installation. No Slivka
+Use Node.js 22 or later and an existing local GYDE MongoDB installation configured
+as a replica set (a single-node replica set is sufficient). Workspace updates use
+MongoDB transactions; a standalone MongoDB server cannot save those updates. No Slivka
 server/GPU installation, Clerk configuration or PostgreSQL is required for this
 mode. The normal Slivka setup remains documented in the main README.
 
@@ -208,7 +210,11 @@ changing provider does not transfer the workspace to Tamarind.
    without resubmitting compute. Files must belong to the persisted job and match
    the adapter's expected output contract/version.
 
-Only completed matching jobs can satisfy a cache request. Result access is checked
+Browser submissions are queued at a maximum of two at once, matching the upload
+admission limit. Disconnecting a browser does not free backend capacity until its
+remote work settles.
+
+Only completed matching jobs in the configured project can satisfy a cache request. Result access is checked
 again with Tamarind, so a local cache entry does not bypass key revocation. A
 recovered job is never automatically resubmitted just because import failed.
 Switching compute providers can make pending provider-specific jobs unavailable

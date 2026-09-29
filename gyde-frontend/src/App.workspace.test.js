@@ -14,7 +14,6 @@ jest.mock("./czekolada/lib", () => ({}));
 
 function app() {
   const instance = new _App({});
-  instance.workspaceMounted = true;
   instance.setState = (update, done) => {
     const next = typeof update === "function" ? update(instance.state) : update;
     instance.state = { ...instance.state, ...next };
@@ -53,34 +52,12 @@ test("overlapping loads of one dataset create only one tab", async () => {
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
-test("closing one local tab keeps a shared workspace snapshot pinned until the last tab closes", () => {
+test("failed loads release the duplicate-load guard and retain their error", async () => {
   const instance = app();
-  instance.state.tabs = [
-    { id: "one", _external_id: "workspace" },
-    { id: "two", _external_id: "workspace" },
-  ];
-  instance.closeTab("one");
-  jest.advanceTimersByTime(200);
-  instance.closeTab("two");
-  jest.advanceTimersByTime(200);
-});
-
-for (const saving of [false, true]) {
-  test(`failed reopen ${saving ? "retains an active save" : "releases a closed snapshot"}`, async () => {
-    const instance = app();
-    if (saving) instance.savingWorkspaceId = "workspace";
-    fetch.mockRejectedValue(new Error("Read failed"));
-    await instance.loadHistoricalSession("workspace");
-    expect(instance.loadingWorkspaces.has("workspace")).toBe(false);
-    expect(instance.state.loadFailures.workspace).toBe("Read failed");
-  });
-}
-
-test("a failed load from an unmounted auth session cannot release the new session snapshot", async () => {
-  const instance = app();
-  instance.workspaceMounted = false;
   fetch.mockRejectedValue(new Error("Read failed"));
   await instance.loadHistoricalSession("workspace");
+  expect(instance.loadingWorkspaces.has("workspace")).toBe(false);
+  expect(instance.state.loadFailures.workspace).toBe("Read failed");
 });
 
 test("retrying a failed load clears the old error before reopening the dataset", async () => {
@@ -169,4 +146,17 @@ test('overlapping dataset deletions preserve each other\'s failure feedback', as
   await Promise.all([second, third]);
   expect(instance.state.sessionActionErrors.one).toBe('First dataset could not be deleted');
   expect(instance.state.sessionHistory).toEqual([{id:'one'}]);
+});
+
+test('a dataset deleted during an outstanding load cannot reopen from the stale response',async()=>{
+    const instance=app();let finishLoad;
+    fetch.mockReturnValueOnce(new Promise(resolve=>{finishLoad=resolve;})).mockResolvedValueOnce({ok:true});
+    const loading=instance.loadHistoricalSession('one');
+    await instance.deleteHistoricalSession('one');
+    finishLoad({ok:true,json:async()=>({dataColumns:[]})});
+    await loading;
+    expect(instance.state.tabs).toHaveLength(0);
+    expect(instance.loadingWorkspaces.has('one')).toBe(false);
+    await instance.loadHistoricalSession('one');
+    expect(fetch).toHaveBeenCalledTimes(2);
 });

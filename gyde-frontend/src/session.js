@@ -3,7 +3,6 @@ import {toByteArray, fromByteArray} from 'base64-js';
 
 import {aosToSoa, aosToSoaInclusive, soaToAos} from './utils/utils';
 import {LAYOUT} from './utils/constants';
-import {dataColumnInventory} from './workspacePersistence';
 
 export async function makeSaveableTabState(tab, saveData) {
     const saveTab = {...tab}
@@ -12,8 +11,6 @@ export async function makeSaveableTabState(tab, saveData) {
     delete saveTab['_old_external_id'];
     delete saveTab['closeTab'];
     delete saveTab['heatmapDataObject'];
-    // Dialog inputs are transient; null also clears any prior server-side value
-    // when this save is merged into the workspace.
 
     saveTab.hideColumns = saveTab.hideColumns ? Array.from(saveTab.hideColumns) : null;
     saveTab.selection = saveTab.selection ? Array.from(saveTab.selection) : null;
@@ -22,9 +19,6 @@ export async function makeSaveableTabState(tab, saveData) {
     saveTab.filter = saveTab.filter ? Array.from(saveTab.filter) : null;
 
     if (saveData || (tab._gyde_format_version||0) < 200002) {
-        // A full inventory survives JSON dropping undefined values in partial saves.
-        // The server uses it to remove deleted columns and their blob/object caches.
-        saveTab._gyde_column_names = dataColumnInventory(tab.columnarData);
         if (!saveData) {
             console.log('*** Forcing full save due to version upgrade')
             saveData = true;
@@ -41,7 +35,6 @@ export async function makeSaveableTabState(tab, saveData) {
     } else {
         // console.log('doing light save');
         delete saveTab['columnarData'];
-        delete saveTab['_gyde_column_names'];
     }
 
     const blobCache = {},

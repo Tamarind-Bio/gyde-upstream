@@ -811,7 +811,7 @@ export class _App extends React.Component {
     }
 
     async loadHistoricalSession(sid) {
-        if (this.loadingWorkspaces.has(sid) || this.state.tabs.some((t) => t._external_id === sid)) return;
+        if (this.deletedWorkspaces.has(sid) || this.deletingWorkspaces.has(sid) || this.loadingWorkspaces.has(sid) || this.state.tabs.some((t) => t._external_id === sid)) return;
         this.loadingWorkspaces.add(sid);
         this.setState((state) => ({
             loadingSession: true,
@@ -842,6 +842,7 @@ export class _App extends React.Component {
             tabData.layout = tabLayout;
 
             this.setState((oldState) => {
+                if (this.deletedWorkspaces.has(sid)) return null;
                 const transitionID = oldState.transitionID + 1;
                 const transition = {
                     transitionID,

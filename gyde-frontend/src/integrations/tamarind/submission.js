@@ -12,7 +12,22 @@ async function fingerprint(url, form) {
     const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([url, fields])));
     return 'gyde-pending-' + Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2,'0')).join('');
 }
+// Dataset imports can align several columns at once. Queue their submissions
+// within the backend's two-upload limit, without automatically retrying a POST.
+const waiting = [];
+let active = 0;
 export async function submitTamarind(url, form) {
+    if (active >= 2) await new Promise(resolve => waiting.push(resolve));
+    else active++;
+    try { return await submitAttempt(url, form); }
+    finally {
+        const next = waiting.shift();
+        if (next) next();
+        else active--;
+    }
+}
+
+async function submitAttempt(url, form) {
     const fingerprintKey = await fingerprint(url, form);
     let key = memory.get(fingerprintKey);
     try { key ||= sessionStorage.getItem(fingerprintKey); } catch { /* Memory remains available. */ }

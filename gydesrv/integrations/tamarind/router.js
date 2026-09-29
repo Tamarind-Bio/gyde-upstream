@@ -4,12 +4,12 @@ import {TamarindApiClient} from './client.js';
 import {PersonalJobs} from './jobs.js';
 import {multipart} from './multipart.js';
 import {HttpError} from './errors.js';
-import {admission} from './admission.js';
+import {admission, admittedHandler} from './admission.js';
 
 export async function tamarindRouter({config, collection, client = new TamarindApiClient(config)}) {
     const router = express.Router(), jobs = new PersonalJobs(collection, client, catalog, config);
     await jobs.init();
-    const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
+    const wrap = admittedHandler;
     router.use(['/api', '/api2', '/media', '/media2', '/compute/tamarind'], admission(16), (_req, res, next) => {
         res.set('Cache-Control', 'no-store'); next();
     });

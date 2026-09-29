@@ -42,3 +42,21 @@ test('losing a success response body is also reconciled before the attempt is cl
     await submitTamarind('/compute/tamarind/services/chai-1/jobs',form());
     expect(fetch).toHaveBeenCalledTimes(2);
 });
+
+test('multi-column imports queue submissions without exceeding two concurrent requests',async()=>{
+    let active=0,max=0;
+    const finish=[];
+    global.fetch=jest.fn(async()=>{
+        active++;max=Math.max(max,active);
+        await new Promise(resolve=>finish.push(resolve));
+        active--;return response();
+    });
+    const requests=Array.from({length:5},(_,i)=>submitTamarind(`/compute/tamarind/services/tool-${i}/jobs`,form()));
+    for(let i=0;i<5;i++) {
+        while(!finish.length) await new Promise(resolve=>setTimeout(resolve,0));
+        finish.shift()();
+    }
+    await Promise.all(requests);
+    expect(max).toBe(2);
+    expect(fetch).toHaveBeenCalledTimes(5);
+});

@@ -3,8 +3,8 @@ import {HttpError, requireId} from './errors.js';
 import {outputFiles} from './outputFiles.js';
 
 const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
-function digest(service, form) {
-    const values = [service.id, service.version,
+function digest(service, form, projectTag) {
+    const values = [service.id, service.version, projectTag || null,
         Object.entries(form.fields).sort(([a], [b]) => a.localeCompare(b)),
         Object.entries(form.files).sort(([a], [b]) => a.localeCompare(b)).map(([name, file]) =>
             [name, createHash('sha256').update(file.bytes).digest('hex')])];
@@ -54,7 +54,7 @@ export class PersonalJobs {
         const service = Object.hasOwn(this.catalog, serviceId) ? this.catalog[serviceId] : undefined;
         if (!service) throw new HttpError(404, 'This tool is not available from the configured compute provider');
         if (!/^[a-zA-Z0-9_-]{8,128}$/.test(requestKey || '')) throw new HttpError(400, 'A valid Idempotency-Key is required');
-        const inputDigest = digest(service, form);
+        const inputDigest = digest(service, form, this.config.projectTag);
         const prior = await this.collection.findOne({credentialId: this.config.credentialId, requestKey});
         if (prior) {
             if (prior.digest !== inputDigest) throw new HttpError(409, 'This submission key already belongs to different inputs');
@@ -95,7 +95,7 @@ export class PersonalJobs {
     }
     async remote(row) {
         const remote = await this.client.job(row.jobName);
-        if (remote.JobName !== row.jobName || remote.Type !== this.catalog[row.serviceId]?.tool || !remote.User ||
+        if (!remote || remote.JobName !== row.jobName || remote.Type !== this.catalog[row.serviceId]?.tool || !remote.User ||
             (row.remoteOwner && row.remoteOwner !== remote.User))
             throw new HttpError(502, 'Tamarind returned a different job identity');
         return remote;
@@ -117,7 +117,8 @@ export class PersonalJobs {
         let state = states[remote.JobStatus];
         if (!state) throw new HttpError(502, 'Tamarind returned an unknown job state');
         row = await this.owned(id);
-        if (row.state === 'CANCELLING') state = remote.JobStatus === 'Stopped' ? 'CANCELLED' : terminal.has(state) ? state : 'CANCELLING';
+        if (row.cancellationRequested && remote.JobStatus === 'Stopped') state = 'CANCELLED';
+        else if (row.state === 'CANCELLING' && !terminal.has(state)) state = 'CANCELLING';
         return this.status(await this.save(row, {state, remoteOwner: remote.User, message: undefined}));
     }
     async cancel(id) {
@@ -125,6 +126,9 @@ export class PersonalJobs {
         const row = await this.owned(id);
         if (terminal.has(row.state)) return this.status(row);
         if (['SUBMITTING', 'RECONCILING'].includes(row.state)) throw new HttpError(409, 'Wait for submission confirmation before cancelling');
+        // Persist intent before the remote write: a concurrent poll or a lost
+        // response can observe Stopped before cancellation returns.
+        await this.save(row, {cancellationRequested: true});
         await this.client.cancel(row.jobName);
         return this.status(await this.save(row, {state: 'CANCELLING'}));
     }
