@@ -1,3 +1,4 @@
+import {loadStructureModel} from './loadStructureModel';
 import React, {forwardRef, useState, useEffect} from 'react';
 import memoize from 'memoize-one';
 
@@ -1218,18 +1219,7 @@ class StructureHolder extends React.Component {
             if (!trajectory) {
                 throw Error('Structure parsing failed, check file format');
             }
-            await viewer.plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default');
-            await pause(50);  // Still seeing some cases where models don't appear to exist at this point (?)
-            const models = viewer.plugin.managers.structure.hierarchy.state.hierarchy.models;
-            let model = models.at(-1);
-            model.cell.obj.data.label = structureLabel;
-
-            if (structureIndex !== null && structureIndex !== undefined) {
-                await setModelIndex(viewer, structureLabel, structureIndex);
-                const models = viewer.plugin.managers.structure.hierarchy.state.hierarchy.models;
-                model = models.at(-1);
-                model.cell.obj.data.label = structureLabel;
-            }
+            const model = await loadStructureModel(viewer, trajectory, structureLabel, structureInfo);
 
             this.hasBeenSuperposed[structureLabel] = false;
             this.setState((oldState) => ({

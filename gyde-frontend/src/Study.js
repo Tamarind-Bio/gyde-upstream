@@ -1,3 +1,4 @@
+import RenameColumn from './RenameColumn';
 import React, {useState, useCallback, useRef, useEffect} from 'react';
 import {
     Grid, LinearProgress, CircularProgress, Button, ButtonGroup, Tooltip, Menu, MenuItem, Paper,
@@ -2893,6 +2894,8 @@ class _Study extends React.Component {
         const dataWidget = (
             <Paper elevation={6} sx={{padding: '1rem'}} ref={this.dataRef}>
                 <WidgetBoundaryWrapper>
+                    <RenameColumn seqColumns={this.props.seqColumns} columns={this.props.dataColumns.filter(column=>!column.startsWith('_gyde_'))} labels={columnDisplayNames}
+                        onRename={(column,name)=>this.setState(old=>({columnDisplayNames:{...old.columnDisplayNames,[column]:name}}))}/>
                     <NavBar
                         showTableMenuOnly
                         columns={ columns }
