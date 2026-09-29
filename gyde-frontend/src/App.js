@@ -12,7 +12,7 @@ import { Dialog, DialogTitle } from '@mui/material';
 import { ThemeProvider } from '@mui/material/styles'
 import gtheme from './theme'
 
-import { absolveProtZoo, absolveProtPid } from './analysis/alignment.js';
+import { absolveProtZoo, absolveProtPid, anarci } from './analysis/alignment.js';
 import { loadSpreadsheet, convertToJson } from './utils/loaders.js';
 import { makeSaveableTabState, hydrateTabState } from './session.js';
 import { HeatmapData } from './gmsa/HeatmapUtils.js';
@@ -20,6 +20,7 @@ import { LAYOUT, STRUCTURE_KEYS } from './utils/constants.js';
 
 import {SlivkaServiceContext} from './czekolada/lib';
 import memoize from 'memoize-one';
+import {isTamarindCompute} from './compute';
 import {requestError} from './czekolada/requestErrors';
 
 export class _App extends React.Component {
@@ -114,6 +115,12 @@ export class _App extends React.Component {
         ]),
 
         alignmentTargets: [
+            ...(isTamarindCompute() ? [{
+                name: 'ANARCI',
+                aligner: (service, sequences, options) => anarci(service, sequences, 'kabat', options),
+                gateOnService: 'anarci',
+                numberingOnly: true,
+            }] : []),
             /*
             {
                 name: 'Human (score)',

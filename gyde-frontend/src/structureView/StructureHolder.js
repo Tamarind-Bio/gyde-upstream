@@ -1,4 +1,9 @@
 import {loadStructureModel} from './loadStructureModel';
+import {isTamarindCompute} from '../compute';
+import {TamarindRestraintControls, translateGydeRestraints} from '../integrations/tamarind/tamarindRestraints';
+import {tamarindPredictors, predictorMolecules, rankedPredictions, tamarindAntibodyInput} from '../integrations/tamarind/tamarindPredictors';
+import { canResumeResult, importCompletedResult } from './resultImport';
+import {tamarindBoltzInput, singleBoltzRow, boltzReconnectRows} from '../integrations/tamarind/tamarindBoltz';
 import React, {forwardRef, useState, useEffect} from 'react';
 import memoize from 'memoize-one';
 
@@ -113,6 +118,8 @@ class StructureHolder extends React.Component {
         this.onMolstarSelectionChange = this.onMolstarSelectionChange.bind(this);
         this.cancelPrediction = this.cancelPrediction.bind(this);
         this.slivkaSubscriptions = [];
+        this.resultImports = new Set();
+        this.unmounted = false;
         this.hasBeenSuperposed = {};
     }
 
@@ -140,7 +147,7 @@ class StructureHolder extends React.Component {
 
     isChaiEnabled() {
         const environment = this.props.environment;
-        return (environment?.featureFlags || {}).chai;
+        return isTamarindCompute() || (environment?.featureFlags || {}).chai;
     }
 
     isBoltz1XEnabled() {
@@ -165,7 +172,7 @@ class StructureHolder extends React.Component {
 
     isOpenFold3V1Enabled() {
         const environment = this.props.environment;
-        return (environment?.featureFlags || {}).of3v1;
+        return isTamarindCompute() || (environment?.featureFlags || {}).of3v1;
     }
 
     isIbexEnabled() {
@@ -214,8 +221,9 @@ class StructureHolder extends React.Component {
         if (this.isBoltz1XEnabled()) {
             this.runBoltz1XPrediction(true, true);
         }
+        // Poll saved jobs even when tool discovery is still loading.
+        this.runBoltz2Prediction(true);
         if (this.isBoltz2Enabled()) {
-            this.runBoltz2Prediction(true, true);
             this.runBoltz221Prediction(true, true);
         }
         if (this.isChaiEnabled()) {
@@ -235,13 +243,14 @@ class StructureHolder extends React.Component {
                 this.runOF3VNimPrediction(true);
             }
         }
+        if (isTamarindCompute() || this.isIbexEnabled()) this.runABodyBuilder3Prediction(true);
         if (this.isIbexEnabled()) {
             this.runIbexPrediction(true);
-            this.runABodyBuilder3Prediction(true);
         }
     }
 
     componentWillUnmount() {
+        this.unmounted = true;
         this.molstartSelectionSubscription?.unsubscribe();
 
         this.viewerPromise?.then((viewer) => {
@@ -382,6 +391,13 @@ class StructureHolder extends React.Component {
 
                 result.push({
                     sequences, alignments, proteinSequences, ligands, dnas, rnas,
+                    sequenceColumns: seqColumns.map(({column}) => column),
+                    moleculeColumns: {
+                        protein: seqColumns.filter(({column}) => (columnTypes[column] ?? 'protein') === 'protein').map(({column}) => column),
+                        ligand: ligandColumnKeys.filter(column => get(column, index)),
+                        dna: dnaColumnKeys.filter(column => get(column, index)),
+                        rna: rnaColumnKeys.filter(column => get(column, index)),
+                    },
                     url, explicitChains: chains, explicitMappings, modelIndex, hc, lc,
                     predictionKey: thisPredictionKey,
                     method,
@@ -786,6 +802,9 @@ class StructureHolder extends React.Component {
             structureKey.startsWith('of3_')  || 
             structureKey.startsWith('of3v1_') || 
             (method === 'Alphafold') ||
+            (method === 'AlphaFold2') ||
+            (method === 'OpenFold3') ||
+            (method === 'ABodyBuilder3') ||
             (method === 'chai-lab-0.6.1') ||
             (method === 'chai-lab-collabfold-msa-0.6.1') ||
             (method === 'Chai-1') ||
@@ -1338,11 +1357,10 @@ class StructureHolder extends React.Component {
                 group: 'Boltz'
             },
             {
-                name: 'Boltz-2.0.3',
+                name: 'Boltz-2 (Tamarind)',
                 callback: this.runBoltz2Prediction,
                 key: 'boltz2',
-                enabled: this.isBoltz2Enabled(),
-                available: 'molecules',
+                enabled: true,
                 gateOnService: 'boltz-2',
                 group: 'Boltz'
             },
@@ -1356,7 +1374,8 @@ class StructureHolder extends React.Component {
                 group: 'Boltz'
             },
             {
-                name: 'Chai-1 OLD',
+                name: isTamarindCompute() ? 'Chai-1' : 'Chai-1 OLD',
+                available: isTamarindCompute() ? 'molecules' : undefined,
                 callback: this.runChaiPrediction,
                 key: 'chai',
                 enabled: this.isChaiEnabled(),
@@ -1392,7 +1411,7 @@ class StructureHolder extends React.Component {
 
             },
             {
-                name: 'OpenFold-3 v1 [Experimental]',
+                name: isTamarindCompute() ? 'OpenFold3' : 'OpenFold-3 v1 [Experimental]',
                 callback: this.runOF3V1Prediction,
                 key: 'of3v1',
                 enabled: this.isOpenFold3V1Enabled(),
@@ -1878,6 +1897,10 @@ class StructureHolder extends React.Component {
     }
 
     runABodyBuilder2(probeOnly=false, reconnect=false) {
+        if (isTamarindCompute()) {
+            if (probeOnly && !reconnect) return;
+            return this.runTamarindAntibodyPrediction(2, reconnect);
+        }
         probeOnly = probeOnly || reconnect;
         const {
             selection, columnarData, seqColumns, structureSequence, visibleStructures, seqRefColumns, alignments, references, isAntibody
@@ -1961,6 +1984,10 @@ class StructureHolder extends React.Component {
     }
 
     runAlphafoldPrediction(probeOnly=false, reconnect=false) {
+        if (isTamarindCompute()) {
+            if (probeOnly && !reconnect) return;
+            return this.runTamarindPredictor('af2', reconnect);
+        }
         probeOnly = probeOnly || reconnect;
         const {selection, columnarData, seqColumns, slivkaService, structureSequence, visibleStructures, isAntibody} = this.props;
         const structureInfos = this.extractStructuresFromSelection(
@@ -2329,7 +2356,21 @@ class StructureHolder extends React.Component {
 
             if (isTerminal) {
                 if (result.status === 'COMPLETED') {
-                    onComplete(result);
+                    const importKey = `${result.id}:${structureInfo.dataIndices[0]}:${structureName}`;
+                    if (this.resultImports.has(importKey) || this.unmounted) return;
+                    this.resultImports.add(importKey);
+                    try {
+                        await importCompletedResult({...result, methodKey, jobName}, {
+                            clearCompute: () => this.setState(oldState => updatePredictionsState(
+                                oldState, methodKey, predictionKey, undefined, false, null)),
+                            run: () => onComplete(result),
+                            isActive: () => !this.unmounted,
+                            save: record => this.props.addValueToNewStructureColumn(
+                                structureInfo.dataIndices[0], record, structureName),
+                        });
+                    } finally {
+                        this.resultImports.delete(importKey);
+                    }
                 } else {
                     if (pending || !probeOnly) {
                         this.props.addValueToNewStructureColumn(
@@ -2346,7 +2387,7 @@ class StructureHolder extends React.Component {
                     }
                 }
 
-                this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false, null));
+                if (!this.unmounted) this.setState((oldState) => updatePredictionsState(oldState, methodKey, predictionKey, undefined, false, null));
             } else {
                 const ji = {jobId: result.id, jobUrl: result['@url']};
                 if (firstPing) {
@@ -2369,10 +2410,23 @@ class StructureHolder extends React.Component {
         };
 
         const {selection, columnarData, dataColumns, seqColumns, columnTypes, slivkaService, structureSequence, visibleStructures, isAntibody} = this.props;
-        const structureInfos = this.extractStructuresFromSelection(
+        let structureInfos = this.extractStructuresFromSelection(
             columnarData, seqColumns, this.props.seqRefColumns, this.props.alignments, this.props.references,
             reconnect ? true : selection, this.props.columnTypes, structureSequence, visibleStructures, isAntibody, this.state.mappingCache
         );
+
+        if (method === 'boltz-2') {
+            try {
+                structureInfos = reconnect ? boltzReconnectRows(structureInfos) : singleBoltzRow(structureInfos);
+            } catch (err) {
+                alert(err.message);
+                return;
+            }
+        }
+
+        if (isTamarindCompute() && method !== 'boltz-2') {
+            structureInfos = boltzReconnectRows(structureInfos);
+        }
 
         if (reconnect) {
             const structureName = methodKey + structureSuffixes[0];     // only for legacy jobs
@@ -2385,8 +2439,8 @@ class StructureHolder extends React.Component {
                     const oldStructureRecord = (columnarData[column] || [])[dataIndex];
 
                     if (oldStructureRecord && oldStructureRecord._gyde_method_key === methodKey || column === structureName) {
-                        const pending = oldStructureRecord?._gyde_analysis === 'pending' ? oldStructureRecord?._gyde_job_id : undefined,
-                              pendingURL = oldStructureRecord?._gyde_analysis === 'pending' ? oldStructureRecord?._gyde_job_url : undefined,
+                        const pending = canResumeResult(oldStructureRecord) ? oldStructureRecord._gyde_job_id : undefined,
+                              pendingURL = oldStructureRecord?._gyde_job_url,
                               reconnectJobName = oldStructureRecord?._gyde_job_name ?? methodKey;
 
 
@@ -3255,173 +3309,13 @@ class StructureHolder extends React.Component {
     }
 
     runBoltz2Prediction(reconnect=false) {
-        const {seqColumns, columnTypes, slivkaService, restraints=[]} = this.props;
-        const ligandColumns = Object.entries(this.props.columnTypes).filter(([_, type]) => type === 'smiles').map(([col, _]) => col);
+        const {seqColumns, columnTypes, slivkaService} = this.props;
         const structureSuffixes = ['_0', '_1', '_2', '_3', '_4'];
-
-        const ligandColumnKeys = Object.entries(this.props.columnTypes || {}).filter(([k, v]) => v === 'smiles').map(([k, v]) => k)
-
-        const LC4AWidget = (props) => {
-            const [predictionOptions, updatePredictionOptions] = usePredictionOptions();
-            const {ligandColumnForAffinity, useRestraints} = predictionOptions;
-
-            return (
-                <React.Fragment>
-                    { ligandColumnKeys.length === 0
-                      ? <div>No ligands, affinity prediction not available</div>
-                      : <p>
-                            <div>Select ligand column for affinity prediction</div>
-                            <TextField
-                              id="boltz2-ligand-select"
-                              label="Affinity estimation "
-                              value={ligandColumnForAffinity || '-'}
-                              style={{width: '20rem'}}
-                              margin='normal'
-                              select
-                              onChange={(ev) => updatePredictionOptions({ligandColumnForAffinity: ev.target.value})}
-                            >
-                                <MenuItem value="-">- No affinity prediction -</MenuItem>
-                                { ligandColumnKeys.map((k) => (
-                                    <MenuItem key={k} value={k}>{this.props.columnDisplayNames[k] || k}</MenuItem>
-                                )) }
-                            </TextField>
-                        </p> }
-
-                    { restraints.length === 0
-                      ? <div>No restraints currently configured, use the "Create restraint" option on the sequences menu if you wish to use restraints in your prediction</div>
-                      : <FormControlLabel
-                              control={<Checkbox name="boltz-restraints" checked={useRestraints ?? false} onChange={(ev) => updatePredictionOptions({useRestraints: ev.target.checked})} />}
-                              label="Use restraints" /> }
-                </React.Fragment>
-            );
-        };
-
-        return this.runCzekoladaStructurePredictionMSA({
+        return this.runCzekoladaStructurePredictionProps({
             method: 'boltz-2',
             methodKey: 'boltz2',
             structureSuffixes,
-            inputConstructor: (structureInfo, predictionOptions={}) => {
-                const {ligandColumnForAffinity, useRestraints} = predictionOptions
-                const {proteinSequences, ligands, dnas, rnas, predictionKey, alignments} = structureInfo;
-                let chainSeed = 0;
-                const nextChain = () => String.fromCharCode(65+(chainSeed++));
-                const requestEntriesByKey = {};
-                const bindEntry = (type, seq, chain, props={}) => {
-                    const key = type + '__' + seq;
-                    if (!requestEntriesByKey[key]) {
-                        requestEntriesByKey[key] = {
-                            ...props,
-                            type,
-                            [type === 'ligand' ? 'smiles' : 'sequence']: seq,
-                            id: []
-                        };
-                    }
-                    requestEntriesByKey[key].id.push(chain);
-                }
-                const affinities = [];
-
-
-                const columnNameToChain = {};
-                const columnNameToGapMap = {};
-
-                (proteinSequences || []).forEach((s, i) => {
-                    const chain = nextChain();
-                    columnNameToChain[seqColumns[i].column] = chain;
-                     if (alignments[i]) {
-                        const gapMap = [];
-                        let cursor = 0;
-                        for (let a = 0; a < alignments[i].length; ++a) {
-                            if (alignments[i][a] !== '-') {
-                                gapMap[a] = cursor++;
-                            }
-                        }
-                        columnNameToGapMap[seqColumns[i].column] = gapMap;
-                    }
-                    bindEntry('protein', s, chain, {msa: `msa${chain}.a3m`});
-                });
-                ligands?.forEach((l, ligandIndex) => {
-                    const chain = nextChain();
-                    columnNameToChain[ligandColumns[ligandIndex]] = chain;
-                    if (ligandColumnKeys[ligandIndex] === ligandColumnForAffinity) {
-                        affinities.push(chain);
-                    }
-                    bindEntry('ligand', l, chain);
-                });
-                for (const d of (dnas || [])) {
-                    bindEntry('dna', d, nextChain());
-                }
-                for (const r of (rnas || [])) {
-                    bindEntry('rna', r, nextChain());
-                }
-
-                const requestEntries = Object.values(requestEntriesByKey).map(({type, id, ...rest}) => ({[type]: {id: id.length === 1 ? id[0]: id, ...rest}}));
-                const request = {sequences: requestEntries};
-                if (affinities.length > 0) {
-                    request.properties = affinities.map((c) => ({affinity: {binder: c}}));
-                }
-
-                if (useRestraints && restraints?.length > 0) {
-                    const boltzRestraints = restraints.flatMap(({id, fromSeqCol, fromSeqPos, fromLigand, toSeqCol, toSeqPos, toLigand, minAngstroms, maxAngstroms}) => {
-                        const mappedFromPos = (columnNameToGapMap[fromSeqCol] || [])[fromSeqPos],
-                              mappedToPos = (columnNameToGapMap[toSeqCol] || [])[toSeqPos];
-
-                        if ((!fromLigand && typeof(mappedFromPos) !== 'number') || (!toLigand && typeof(mappedToPos) !== 'number')) {
-                            alert('Problem mapping restraint coordinates');
-                            return [];
-                        }
-
-
-                        if (fromLigand) {
-                            return [{
-                                pocket: {
-                                    binder: columnNameToChain[fromSeqCol],
-                                    contacts: [[columnNameToChain[toSeqCol], mappedToPos + 1]],
-                                    max_distance: maxAngstroms
-                                }
-                            }];
-                        } else if (toLigand) {
-                            return [{
-                                pocket: {
-                                    binder: columnNameToChain[toSeqCol],
-                                    contacts: [[columnNameToChain[fromSeqCol], mappedFromPos + 1]],
-                                    max_distance: maxAngstroms
-                                }
-                            }];
-                        } else {
-                            alert('Chain-chain contacts currently not working in Boltz....')
-                            return [];
-                            /*
-                            return ({
-                                contact: {
-                                    token1: [columnNameToChain[fromSeqCol], mappedFromPos + 1],
-                                    token2: [columnNameToChain[toSeqCol], mappedToPos + 1],
-                                    max_distance: maxAngstroms
-                                }
-                            })
-                            */
-                        }
-                    });
-
-                    if (boltzRestraints.length > 1) {
-                        request.constraints = boltzRestraints;
-                    }
-                }
-
-
-                const fasta = new Blob(
-                    [JSON.stringify(request, null, 2)],
-                    {
-                        type: 'application/x-yaml'
-                    }
-                );
-
-                return {
-                    input: fasta,
-                    output_format: 'pdb',
-                    diffusion_samples: 5
-                };
-            },
-            replacedInputs: ['input'],
+            inputConstructor: (info,options={}) => ({...tamarindBoltzInput(info),...translateGydeRestraints(info,this.props.restraints || [],options.useRestraints)}),
             onComplete: async (result) => {
                 const jobName = result.jobName ?? 'boltz2';
                 const structureInfo = result.structureInfo;
@@ -3435,6 +3329,7 @@ class StructureHolder extends React.Component {
                     ],
                 );
 
+                if (this.unmounted) return;
                 if (fetchResult) {
                     const plddtArrays = {};
                     for (const r of fetchResult) {
@@ -3450,6 +3345,7 @@ class StructureHolder extends React.Component {
                         }
                     }
 
+                    if (this.unmounted) return;
                     for (const r of fetchResult) {
                         if (r.label === 'Affinity predictions') {
                             const {affinity_pred_value, affinity_probability_binary} = r.data;
@@ -3506,9 +3402,9 @@ class StructureHolder extends React.Component {
                 }
             },
             reconnect: reconnect,
-            hideParams: ['input', 'output_format', 'msa'],
+            hideParams: ['sequence','restraints'],
             constrainParams: undefined,
-            message: <LC4AWidget />
+            message: <><div>Tamarind will generate MSAs and predict five Boltz-2 structures with confidence scores.</div><TamarindRestraintControls hasRestraints={!!this.props.restraints?.length}/></>
         });
     }
 
@@ -3979,6 +3875,7 @@ class StructureHolder extends React.Component {
     }
 
     runOF3V1Prediction(reconnect=false) {
+        if (isTamarindCompute()) return this.runTamarindPredictor('openfold3-v1', reconnect);
         const {seqColumns, columnTypes, slivkaService, restraints=[]} = this.props;
         const ligandColumns = Object.entries(this.props.columnTypes).filter(([_, type]) => type === 'smiles').map(([col, _]) => col);
         const structureSuffixes = ['_1', '_2', '_3', '_4', '_5'];
@@ -4284,6 +4181,10 @@ class StructureHolder extends React.Component {
     }
 
     runChaiPrediction(probeOnly=false, reconnect=false) {
+        if (isTamarindCompute()) {
+            if (probeOnly && !reconnect) return;
+            return this.runTamarindPredictor('chai-1', reconnect);
+        }
         const methodKey = 'chai';
 
         probeOnly = probeOnly || reconnect;
@@ -4649,7 +4550,71 @@ class StructureHolder extends React.Component {
         });
     }
 
+    runTamarindPredictor(method, reconnect=false) {
+        const {name, key:methodKey} = tamarindPredictors[method];
+        return this.runCzekoladaStructurePredictionProps({
+            method, methodKey, reconnect,
+            structureSuffixes: ['_0','_1','_2','_3','_4'],
+            inputConstructor: (info,options={}) => ({molecules:JSON.stringify(predictorMolecules(info, method)),
+                ...(method==='chai-1' ? translateGydeRestraints(info,this.props.restraints || [],options.useRestraints) : {})}),
+            hideParams:['molecules','restraints'],
+            message:<><div>Tamarind will generate MSAs and predict five {name} structures.</div>{method==='chai-1' && <TamarindRestraintControls hasRestraints={!!this.props.restraints?.length}/>}</>,
+            onComplete: async result => {
+                const files=await this.props.slivkaService.fetch(result.id, [
+                    {label:'Predicted structures',type:'url',required:true},
+                    {label:'Prediction metrics',type:'text',required:true},
+                ]);
+                const models=rankedPredictions(method, files.filter(f=>f.label==='Predicted structures'),
+                    files.find(f=>f.label==='Prediction metrics').data);
+                if(this.unmounted) return;
+                const jobName=result.jobName || methodKey;
+                const molecules=predictorMolecules(result.structureInfo);
+                const columnChains={};
+                for(const type of ['protein','ligand','dna','rna']) {
+                    const columns=result.structureInfo.moleculeColumns[type];
+                    molecules.filter(m=>m.type===type).forEach((m,index)=>{columnChains[columns[index]]=m.chain;});
+                }
+                const chains=this.props.seqColumns.map(({column})=>columnChains[column]);
+                models.forEach(({file},index)=>this.props.addValueToNewStructureColumn(
+                    result.structureInfo.dataIndices[0], {
+                        _gyde_analysis:'success',_gyde_job_url:result['@url'],
+                        _gyde_url:file.data,_gyde_type:method==='af2' ? 'chemical/x-pdb' : 'chemical/x-mmcif',_gyde_method:name,_gyde_chains:chains,
+                    },`${jobName}_${index}`,index===0));
+                this.props.setVisibleStructures([`${jobName}_0`]);
+                this.props.setStructureColorScheme('pLDDT');
+            },
+        });
+    }
+
+    runTamarindAntibodyPrediction(version, reconnect=false) {
+        const method = `abodybuilder${version}`, methodKey = `abb${version}`;
+        return this.runCzekoladaStructurePredictionProps({
+            method, methodKey, reconnect,
+            inputConstructor: tamarindAntibodyInput,
+            hideParams: ['heavy', 'light'],
+            message: `Predict an antibody structure with Tamarind ABodyBuilder${version}.`,
+            onComplete: async result => {
+                const files = await this.props.slivkaService.fetch(result.id,
+                    [{label:'Predicted structure (PDB)', type:'url', required:true}]);
+                if (this.unmounted) return;
+                const name = result.jobName || methodKey;
+                const chains = this.props.seqColumns.map(({column}) =>
+                    column === this.props.hcColumn ? (version === 2 ? 'H' : 'A') :
+                    column === this.props.lcColumn ? (version === 2 ? 'L' : 'B') : undefined);
+                this.props.addValueToNewStructureColumn(result.structureInfo.dataIndices[0], {
+                    _gyde_analysis:'success', _gyde_job_url:result['@url'],
+                    _gyde_url:files[0].data, _gyde_method:`ABodyBuilder${version}`,
+                    _gyde_chains:chains,
+                }, name, true);
+                this.props.setVisibleStructures([name]);
+                // ABodyBuilder2 predicts error, not pLDDT; do not mislabel it as confidence.
+                this.props.setStructureColorScheme(version === 3 ? 'pLDDT' : 'chain');
+            },
+        });
+    }
+
     runABodyBuilder3Prediction(reconnect=false) {
+        if (isTamarindCompute()) return this.runTamarindAntibodyPrediction(3, reconnect);
         const {seqColumns, columnTypes, slivkaService} = this.props;
 
         return this.runCzekoladaStructurePredictionProps({

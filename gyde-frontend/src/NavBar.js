@@ -1,3 +1,4 @@
+import {isTamarindCompute} from './compute';
 import React, { useCallback, useState, useContext, createContext } from "react";
 import {
     Button, Checkbox, Divider, ListItemText, ListItemIcon, Menu, MenuItem, 
@@ -34,7 +35,7 @@ export const navbarButtonCSS = {
 
 const alignmentKeyMap = {
     'alignedSeqs': 'MSA (MAFFT)',
-    'anarciSeqs': 'Kabat (AbSolve)'
+    'anarciSeqs': isTamarindCompute() ? 'Kabat (ANARCI)' : 'Kabat (AbSolve)'
 }
 
 
@@ -309,7 +310,7 @@ const AlignByMenu = (props) => {
                 value='anarciSeqs'
                 disabled={!isAntibody}
                 onClick={onChange}>
-                Kabat (AbSolve)
+                {alignmentKeyMap.anarciSeqs}
             </GMenuItem>
             {specialAlign 
             ? <GMenuItem
@@ -517,13 +518,13 @@ const AnalysisMenu = (props) => {
                 >
                     MolDesk
                 </ExplainDisabledMenuItem> }
-                <ExplainDisabledMenuItem
+                {!isTamarindCompute() && <ExplainDisabledMenuItem
                     disabled={!humanize}
                     onClick={humanize}
                     disabledMessage="Requires one selected sequence, and 'kabat' alignment mode"
                 >
                     Humanize
-                </ExplainDisabledMenuItem>
+                </ExplainDisabledMenuItem>}
             </GSubMenu>
             <GSubMenu name="Protein engineering">
                 {proteinMPNNService && <ExplainDisabledMenuItem
