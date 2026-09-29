@@ -24,8 +24,8 @@ let root, el;
 const props = {open:true,onClose:jest.fn(),passedProps:{columnarData:{structure:['model.pdb']},soloSelection:0,structureKeys:['structure'],onDataLoad:jest.fn()}};
 const run = () => [...el.querySelectorAll('button')].find(b=>b.textContent==='Run');
 async function select(label, value) { await act(async()=>{const s=el.querySelector(`select[aria-label="${label}"]`);s.value=value;s.dispatchEvent(new Event('change',{bubbles:true}));}); }
-beforeEach(async()=>{el=document.createElement('div');document.body.appendChild(el);root=createRoot(el);jest.clearAllMocks();await act(async()=>root.render(<ThermoMPNNDialog {...props}/>));});
-afterEach(async()=>{await act(async()=>root.unmount());el.remove();});
+beforeEach(async()=>{process.env.REACT_APP_COMPUTE_PROVIDER='tamarind';el=document.createElement('div');document.body.appendChild(el);root=createRoot(el);jest.clearAllMocks();await act(async()=>root.render(<ThermoMPNNDialog {...props}/>));});
+afterEach(async()=>{await act(async()=>root.unmount());el.remove();delete process.env.REACT_APP_COMPUTE_PROVIDER;});
 test('requires a loaded PDB and a selected chain', async()=>{
  expect(run().disabled).toBe(true);
  parseStructureData.mockResolvedValue({structureText:'ATOM',format:'pdb'});
@@ -46,4 +46,12 @@ test('failed structure loads cannot be submitted', async()=>{
 test('CIF input is rejected before submitting', async()=>{
  parseStructureData.mockResolvedValue({structureText:'data_',format:'mmcif'});
  await select('Select structure','structure'); expect(run().disabled).toBe(true); expect(el.textContent).toContain('requires a PDB');
+});
+
+test('Slivka mode keeps its original dialog without Tamarind controls or wording', async()=>{
+ delete process.env.REACT_APP_COMPUTE_PROVIDER;
+ await act(async()=>root.render(<ThermoMPNNDialog {...props}/>));
+ expect(el.textContent).not.toContain('Tamarind');
+ expect(el.textContent).toContain('ThermoMPNN');
+ expect(run()).toBeDefined();
 });

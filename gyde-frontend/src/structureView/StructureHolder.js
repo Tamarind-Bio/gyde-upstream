@@ -1357,10 +1357,11 @@ class StructureHolder extends React.Component {
                 group: 'Boltz'
             },
             {
-                name: 'Boltz-2 (Tamarind)',
+                name: isTamarindCompute() ? 'Boltz-2' : 'Boltz-2.0.3',
                 callback: this.runBoltz2Prediction,
                 key: 'boltz2',
-                enabled: true,
+                enabled: isTamarindCompute() || this.isBoltz2Enabled(),
+                available: isTamarindCompute() ? undefined : 'molecules',
                 gateOnService: 'boltz-2',
                 group: 'Boltz'
             },
@@ -2417,7 +2418,7 @@ class StructureHolder extends React.Component {
             reconnect ? true : selection, this.props.columnTypes, structureSequence, visibleStructures, isAntibody, this.state.mappingCache
         );
 
-        if (method === 'boltz-2') {
+        if (isTamarindCompute() && method === 'boltz-2') {
             try {
                 structureInfos = reconnect ? boltzReconnectRows(structureInfos) : singleBoltzRow(structureInfos);
             } catch (err) {
@@ -3311,6 +3312,270 @@ class StructureHolder extends React.Component {
     }
 
     runBoltz2Prediction(reconnect=false) {
+        return isTamarindCompute()
+            ? this.runTamarindBoltz2Prediction(reconnect)
+            : this.runSlivkaBoltz2Prediction(reconnect);
+    }
+
+    runSlivkaBoltz2Prediction(reconnect=false) {
+        const {seqColumns, columnTypes, slivkaService, restraints=[]} = this.props;
+        const ligandColumns = Object.entries(this.props.columnTypes).filter(([_, type]) => type === 'smiles').map(([col, _]) => col);
+        const structureSuffixes = ['_0', '_1', '_2', '_3', '_4'];
+
+        const ligandColumnKeys = Object.entries(this.props.columnTypes || {}).filter(([k, v]) => v === 'smiles').map(([k, v]) => k)
+
+        const LC4AWidget = (props) => {
+            const [predictionOptions, updatePredictionOptions] = usePredictionOptions();
+            const {ligandColumnForAffinity, useRestraints} = predictionOptions;
+
+            return (
+                <React.Fragment>
+                    { ligandColumnKeys.length === 0
+                      ? <div>No ligands, affinity prediction not available</div>
+                      : <p>
+                            <div>Select ligand column for affinity prediction</div>
+                            <TextField
+                              id="boltz2-ligand-select"
+                              label="Affinity estimation "
+                              value={ligandColumnForAffinity || '-'}
+                              style={{width: '20rem'}}
+                              margin='normal'
+                              select
+                              onChange={(ev) => updatePredictionOptions({ligandColumnForAffinity: ev.target.value})}
+                            >
+                                <MenuItem value="-">- No affinity prediction -</MenuItem>
+                                { ligandColumnKeys.map((k) => (
+                                    <MenuItem key={k} value={k}>{this.props.columnDisplayNames[k] || k}</MenuItem>
+                                )) }
+                            </TextField>
+                        </p> }
+
+                    { restraints.length === 0
+                      ? <div>No restraints currently configured, use the "Create restraint" option on the sequences menu if you wish to use restraints in your prediction</div>
+                      : <FormControlLabel
+                              control={<Checkbox name="boltz-restraints" checked={useRestraints ?? false} onChange={(ev) => updatePredictionOptions({useRestraints: ev.target.checked})} />}
+                              label="Use restraints" /> }
+                </React.Fragment>
+            );
+        };
+
+        return this.runCzekoladaStructurePredictionMSA({
+            method: 'boltz-2',
+            methodKey: 'boltz2',
+            structureSuffixes,
+            inputConstructor: (structureInfo, predictionOptions={}) => {
+                const {ligandColumnForAffinity, useRestraints} = predictionOptions
+                const {proteinSequences, ligands, dnas, rnas, predictionKey, alignments} = structureInfo;
+                let chainSeed = 0;
+                const nextChain = () => String.fromCharCode(65+(chainSeed++));
+                const requestEntriesByKey = {};
+                const bindEntry = (type, seq, chain, props={}) => {
+                    const key = type + '__' + seq;
+                    if (!requestEntriesByKey[key]) {
+                        requestEntriesByKey[key] = {
+                            ...props,
+                            type,
+                            [type === 'ligand' ? 'smiles' : 'sequence']: seq,
+                            id: []
+                        };
+                    }
+                    requestEntriesByKey[key].id.push(chain);
+                }
+                const affinities = [];
+
+
+                const columnNameToChain = {};
+                const columnNameToGapMap = {};
+
+                (proteinSequences || []).forEach((s, i) => {
+                    const chain = nextChain();
+                    columnNameToChain[seqColumns[i].column] = chain;
+                     if (alignments[i]) {
+                        const gapMap = [];
+                        let cursor = 0;
+                        for (let a = 0; a < alignments[i].length; ++a) {
+                            if (alignments[i][a] !== '-') {
+                                gapMap[a] = cursor++;
+                            }
+                        }
+                        columnNameToGapMap[seqColumns[i].column] = gapMap;
+                    }
+                    bindEntry('protein', s, chain, {msa: `msa${chain}.a3m`});
+                });
+                ligands?.forEach((l, ligandIndex) => {
+                    const chain = nextChain();
+                    columnNameToChain[ligandColumns[ligandIndex]] = chain;
+                    if (ligandColumnKeys[ligandIndex] === ligandColumnForAffinity) {
+                        affinities.push(chain);
+                    }
+                    bindEntry('ligand', l, chain);
+                });
+                for (const d of (dnas || [])) {
+                    bindEntry('dna', d, nextChain());
+                }
+                for (const r of (rnas || [])) {
+                    bindEntry('rna', r, nextChain());
+                }
+
+                const requestEntries = Object.values(requestEntriesByKey).map(({type, id, ...rest}) => ({[type]: {id: id.length === 1 ? id[0]: id, ...rest}}));
+                const request = {sequences: requestEntries};
+                if (affinities.length > 0) {
+                    request.properties = affinities.map((c) => ({affinity: {binder: c}}));
+                }
+
+                if (useRestraints && restraints?.length > 0) {
+                    const boltzRestraints = restraints.flatMap(({id, fromSeqCol, fromSeqPos, fromLigand, toSeqCol, toSeqPos, toLigand, minAngstroms, maxAngstroms}) => {
+                        const mappedFromPos = (columnNameToGapMap[fromSeqCol] || [])[fromSeqPos],
+                              mappedToPos = (columnNameToGapMap[toSeqCol] || [])[toSeqPos];
+
+                        if ((!fromLigand && typeof(mappedFromPos) !== 'number') || (!toLigand && typeof(mappedToPos) !== 'number')) {
+                            alert('Problem mapping restraint coordinates');
+                            return [];
+                        }
+
+
+                        if (fromLigand) {
+                            return [{
+                                pocket: {
+                                    binder: columnNameToChain[fromSeqCol],
+                                    contacts: [[columnNameToChain[toSeqCol], mappedToPos + 1]],
+                                    max_distance: maxAngstroms
+                                }
+                            }];
+                        } else if (toLigand) {
+                            return [{
+                                pocket: {
+                                    binder: columnNameToChain[toSeqCol],
+                                    contacts: [[columnNameToChain[fromSeqCol], mappedFromPos + 1]],
+                                    max_distance: maxAngstroms
+                                }
+                            }];
+                        } else {
+                            alert('Chain-chain contacts currently not working in Boltz....')
+                            return [];
+                            /*
+                            return ({
+                                contact: {
+                                    token1: [columnNameToChain[fromSeqCol], mappedFromPos + 1],
+                                    token2: [columnNameToChain[toSeqCol], mappedToPos + 1],
+                                    max_distance: maxAngstroms
+                                }
+                            })
+                            */
+                        }
+                    });
+
+                    if (boltzRestraints.length > 1) {
+                        request.constraints = boltzRestraints;
+                    }
+                }
+
+
+                const fasta = new Blob(
+                    [JSON.stringify(request, null, 2)],
+                    {
+                        type: 'application/x-yaml'
+                    }
+                );
+
+                return {
+                    input: fasta,
+                    output_format: 'pdb',
+                    diffusion_samples: 5
+                };
+            },
+            replacedInputs: ['input'],
+            onComplete: async (result) => {
+                const jobName = result.jobName ?? 'boltz2';
+                const structureInfo = result.structureInfo;
+                const sequences = structureInfo.sequences;
+                const fetchResult = await slivkaService.fetch(
+                    result.id,
+                    [
+                        {label: 'Predicted structure (PDB)', type: 'url', required: true},
+                        {label: 'pLDDT arrays', type: 'arrayBuffer', required: false},
+                        {label: 'Affinity predictions', type: 'json', required: false}
+                    ],
+                );
+
+                if (fetchResult) {
+                    const plddtArrays = {};
+                    for (const r of fetchResult) {
+                        if (r.label === 'pLDDT arrays') {
+                            const splitPath = r.path.split('/');
+                            const fileName = splitPath.length ? splitPath[splitPath.length - 1] : undefined;
+                            const modelMatch = /(model_.+)\.npz$/.exec(fileName);
+                            if (modelMatch) {
+                                const modelName = modelMatch[1];
+                                const plddt = await parseBoltzPLDDTs(r.data);
+                                plddtArrays[modelName] = plddt;
+                            }
+                        }
+                    }
+
+                    for (const r of fetchResult) {
+                        if (r.label === 'Affinity predictions') {
+                            const {affinity_pred_value, affinity_probability_binary} = r.data;
+                            this.props.updateDatum(structureInfo.dataIndices[0], 'boltz_affinity_pred', affinity_pred_value, true, true);
+                            this.props.updateDatum(structureInfo.dataIndices[0], 'boltz_pIC50', (6-affinity_pred_value) * 1.364, true, true);
+                            this.props.updateDatum(structureInfo.dataIndices[0], 'boltz_binding_probability', affinity_probability_binary, true, true);
+                        } else if (r.label === 'Predicted structure (PDB)' /*r.path.endsWith('.pdb')*/) {
+                            const splitPath = r.path.split('/');
+                            const fileName = splitPath.length ? splitPath[splitPath.length - 1] : undefined;
+
+                            let plddt = undefined;
+                            let predName = '0'
+                            const modelMatch = /(model_(.+))\.pdb$/.exec(fileName);
+                            if (modelMatch) {
+                                const modelName = modelMatch[1];
+                                predName = modelMatch[2]
+                                plddt = plddtArrays[modelName];
+                            }
+                            const structureModelName = jobName + '_' + predName;
+
+                            const jobResult = {
+                                _gyde_analysis: 'success',
+                                _gyde_job_url: result['@url'],
+                                _gyde_url: r.data,
+                                _gyde_method: 'Boltz-2',
+                                _gyde_chains: this.getProteinChainLetters(seqColumns, columnTypes)
+                            };
+                            if (plddt) {
+                                let index = 0;
+                                jobResult._gyde_plddts = seqColumns.map(({column}, colIndex) =>  {
+                                    if ((columnTypes[column] ?? 'protein') === 'protein') {
+                                        const p = [];
+                                        for (let i = 0; i < sequences[colIndex].length; ++i) {
+                                            p.push(plddt[index++])
+                                        }
+                                        return p;
+                                    } else {
+                                        return;
+                                    }
+                                });
+                            }
+
+                            this.props.addValueToNewStructureColumn(
+                                structureInfo.dataIndices[0],
+                                jobResult,
+                                structureModelName,
+                                structureModelName === jobName + structureSuffixes[0]
+                            );
+                        }
+                    }
+
+                    this.props.setVisibleStructures([jobName + structureSuffixes[0]]);
+                    this.props.setStructureColorScheme('pLDDT');
+                }
+            },
+            reconnect: reconnect,
+            hideParams: ['input', 'output_format', 'msa'],
+            constrainParams: undefined,
+            message: <LC4AWidget />
+        });
+    }
+
+    runTamarindBoltz2Prediction(reconnect=false) {
         const {seqColumns, columnTypes, slivkaService} = this.props;
         const structureSuffixes = ['_0', '_1', '_2', '_3', '_4'];
         return this.runCzekoladaStructurePredictionProps({
